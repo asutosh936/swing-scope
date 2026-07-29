@@ -63,9 +63,9 @@ Finnhub **moved historical candles (`/stock/candle`) to its premium tier**; a fr
 ---
 
 ## Domain Rules (encode these as constants/config)
-- Account size and risk % are configurable. Default: account $500, risk 1% → max $5 risk/trade.
+- Account size and **risk in dollars** are configurable. Default: account $500, risk **$5.00**/trade (the old "1% of $500" expressed directly). The user enters dollars; the app does no percentage conversion.
 - Min risk/reward ratio: 2.0 (configurable).
-- Position size = floor( (account × riskPct) ÷ (entry − stop) ), then cap by available cash. Take the smaller.
+- Position size = floor( riskAmount ÷ (entry − stop) ), then cap by available cash. Take the smaller.
 - Round share count DOWN to whole shares (fractional support is broker-dependent; assume whole).
 - Trend test: price > EMA50 AND EMA50 > EMA200 (uptrend). Else Skip.
 - Big-mover flag: abs(dailyChange%) > 5 → Tier 3 (news risk).
@@ -87,11 +87,11 @@ Status legend: ☐ Not started · ◐ In progress · ☑ Done
 | | 1.4 | `BigDecimal` money handling throughout | ☑ |
 | | 1.5 | Unit tests (VZ, CI-fail, CARR, stop>entry, cash-cap) | ☑ |
 | | 1.6 | REST endpoint `POST /api/analyze` | ☑ |
-| **2 — Calculator UI** | 2.1 | Thymeleaf dep + `WebController` (`GET /`, `POST /analyze`) | ☐ |
-| | 2.2 | `calculator.html` form + results table | ☐ |
-| | 2.3 | Ratio color-coding (red < 2, green ≥ 2) | ☐ |
-| | 2.4 | Management-rules panel on PASS | ☐ |
-| | 2.5 | Base layout + stylesheet | ☐ |
+| **2 — Calculator UI** | 2.1 | Thymeleaf dep + `WebController` (`GET /`, `POST /analyze`) | ☑ |
+| | 2.2 | `calculator.html` form + results table | ☑ |
+| | 2.3 | Ratio color-coding (red < 2, green ≥ 2) | ☑ |
+| | 2.4 | Management-rules panel on PASS | ☑ |
+| | 2.5 | Base layout + stylesheet | ☑ |
 | **3 — Market Data Integration** | 3.1 | Config + `@ConfigurationProperties` (Twelve Data + optional Finnhub keys via env) | ☐ |
 | | 3.2 | `MarketDataProvider` interface + `TwelveDataClient` (primary) + `FinnhubClient` (secondary) | ☐ |
 | | 3.3 | DTOs matched to real JSON per provider (curl-verify first) | ☐ |
@@ -129,13 +129,13 @@ Status legend: ☐ Not started · ◐ In progress · ☑ Done
 ### Tasks
 1. Project skeleton: Spring Boot app, package structure `domain`, `service`, `web`, `config`.
 2. Domain records:
-   - `TradeSetup(String ticker, BigDecimal entry, BigDecimal stop, BigDecimal target, BigDecimal accountSize, BigDecimal riskPct)`
+   - `TradeSetup(String ticker, BigDecimal entry, BigDecimal stop, BigDecimal target, BigDecimal accountSize, BigDecimal riskAmount)`
    - `TradeAnalysis(riskPerShare, rewardPerShare, ratio, idealShares, wholeShares, totalRisk, positionCost, cashLeft, boolean pass, String reason)`
 3. `TradeCalculatorService.analyze(TradeSetup)`:
    - Compute riskPerShare = entry − stop; guard: stop < entry, else FAIL "stop must be below entry".
    - rewardPerShare = target − entry; guard: target > entry.
    - ratio = reward/risk (scale 2, HALF_UP).
-   - maxRisk = accountSize × riskPct.
+   - maxRisk = riskAmount (dollars, as entered — no percentage conversion).
    - idealShares = maxRisk / riskPerShare; wholeShares = floor(idealShares).
    - Cap wholeShares so positionCost ≤ accountSize.
    - pass = ratio ≥ 2.0 AND wholeShares ≥ 1.
@@ -148,7 +148,7 @@ Status legend: ☐ Not started · ◐ In progress · ☑ Done
 
 ### Phase 1 — Status: ☑ Done (19 tests green, 100% line/branch/instruction coverage)
 Decisions made while building (carry these forward):
-- **`riskPct` is percent form** — `1.0` means 1%. The service divides by 100. Phase 2's form must post `1`, not `0.01`.
+- **Risk is entered in dollars** (`riskAmount`), not as a percentage. `5.00` means $5 at risk if the stop fills. Originally built as `riskPct` (percent form) and changed on 2026-07-28 — the app no longer converts percentages anywhere, and `trading.rules.default-risk-amount` only prefills the form. A risk budget larger than the account is allowed: it logs a WARN and gets capped by cash.
 - **Cash cap is `accountSize`** — no separate `availableCash` field. `wholeShares = min(floor(riskBudget ÷ riskPerShare), floor(accountSize ÷ entry))`. If a real broker balance ever diverges from account size, add the field then.
 - **Test setups are synthetic** — VZ/CI/CARR entry/stop/target were constructed to hit the ratios named above (3.60 / 1.87 / 4.00), not taken from real trades.
 - **Java 17 enforced via `maven.compiler.release=17`** on a JDK 21 toolchain; Boot 3.3.5, Maven.
@@ -174,6 +174,15 @@ Decisions made while building (carry these forward):
 5. Basic layout/CSS (single stylesheet, no framework needed).
 
 **Deliverable:** usable local web app for sizing any trade in seconds.
+
+### Phase 2 — Status: ☑ Done (27 tests green, 100% coverage, verified in a real browser)
+- **Context path is now `/swing-scope`** — the UI lives at `http://localhost:8080/swing-scope/`, the API at `/swing-scope/api/analyze`. Phases 3–5 must prefix every new route and every `th:href`/`th:action` (all templates use `@{...}` so this is automatic).
+- **`TradeSetupForm` is the form-backing bean**, not `TradeSetup` — a record can't be re-populated when validation fails and the form has to be redisplayed with the user's input intact. `toSetup()` trims and upper-cases the ticker. Phase 4's "Plan this trade" should prefill this bean.
+- **Rule failures render as a FAIL badge on HTTP 200**, only malformed input redisplays with field errors — matching the API's behaviour.
+- Ratio is green/red against the *configured* `minRiskReward`, not a hard-coded 2.0.
+- Management-rules panel renders on PASS only; static text, no logic.
+- Layout is `fragments/layout.html` (head / masthead / disclaimer fragments) + one stylesheet, no CSS framework and no layout dialect. `scan.html`, `journal.html` etc. should reuse the same fragments.
+- Not committed — working tree only, per instruction.
 
 ---
 

@@ -10,7 +10,8 @@ import java.math.BigDecimal;
  * The human-supplied trade plan. The tool never invents these numbers — the user reads the chart,
  * picks the trigger candle, and types entry/stop/target here.
  *
- * @param riskPct percent form: {@code 1.0} means 1% of the account.
+ * @param riskAmount the dollars the user is willing to lose on this trade if the stop fills,
+ *                   e.g. {@code 5.00}. An absolute amount, not a percentage of the account.
  */
 public record TradeSetup(
         @NotBlank String ticker,
@@ -18,6 +19,6 @@ public record TradeSetup(
         @NotNull @Positive BigDecimal stop,
         @NotNull @Positive BigDecimal target,
         @NotNull @Positive BigDecimal accountSize,
-        @NotNull @Positive BigDecimal riskPct
+        @NotNull @Positive BigDecimal riskAmount
 ) {
 }

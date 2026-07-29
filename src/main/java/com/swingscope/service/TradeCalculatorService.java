@@ -21,20 +21,20 @@ public class TradeCalculatorService {
 
     private static final int MONEY_SCALE = 2;
     private static final int SHARE_SCALE = 4;
-    private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
 
     private final TradingRules rules;
 
     public TradeCalculatorService(TradingRules rules) {
         this.rules = rules;
         log.info("TradeCalculatorService initialised with rules: minRiskReward={}, defaultAccountSize={}, "
-                + "defaultRiskPct={}%", rules.minRiskReward(), rules.defaultAccountSize(), rules.defaultRiskPct());
+                + "defaultRiskAmount={}", rules.minRiskReward(), rules.defaultAccountSize(),
+                rules.defaultRiskAmount());
     }
 
     public TradeAnalysis analyze(TradeSetup setup) {
-        log.info("Analyzing setup: ticker={} entry={} stop={} target={} account={} riskPct={}%",
+        log.info("Analyzing setup: ticker={} entry={} stop={} target={} account={} riskAmount={}",
                 setup.ticker(), setup.entry(), setup.stop(), setup.target(),
-                setup.accountSize(), setup.riskPct());
+                setup.accountSize(), setup.riskAmount());
 
         if (setup.stop().compareTo(setup.entry()) >= 0) {
             log.warn("REJECTED {}: stop {} is not below entry {} — long-only tool, no shorting logic",
@@ -53,10 +53,12 @@ public class TradeCalculatorService {
         log.debug("{}: riskPerShare={} rewardPerShare={} ratio={} (minimum {})",
                 setup.ticker(), riskPerShare, rewardPerShare, ratio, rules.minRiskReward());
 
-        // Risk budget: e.g. $500 account at 1% => $5 of risk on this trade.
-        BigDecimal maxRisk = money(setup.accountSize()
-                .multiply(setup.riskPct())
-                .divide(ONE_HUNDRED, SHARE_SCALE, RoundingMode.HALF_UP));
+        // Risk budget is stated directly in dollars, e.g. $5 on this trade.
+        BigDecimal maxRisk = money(setup.riskAmount());
+        if (maxRisk.compareTo(setup.accountSize()) > 0) {
+            log.warn("{}: risk budget {} exceeds the whole account balance {} — sizing will be capped by cash",
+                    setup.ticker(), maxRisk, setup.accountSize());
+        }
 
         BigDecimal idealShares = maxRisk.divide(riskPerShare, SHARE_SCALE, RoundingMode.HALF_UP);
         int riskCappedShares = idealShares.setScale(0, RoundingMode.FLOOR).intValueExact();

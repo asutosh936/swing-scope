@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:fragment="head(pageTitle)">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title th:text="|swing-scope — ${pageTitle}|">swing-scope</title>
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body>
+
+<header th:fragment="masthead" class="masthead">
+    <div class="wrap">
+        <a class="brand" th:href="@{/}">swing<span>-scope</span></a>
+        <span class="tagline">position sizing &amp; rule check — decision support, not a signal</span>
+    </div>
+</header>
+
+<footer th:fragment="disclaimer" class="disclaimer">
+    <div class="wrap">
+        <strong>Educational tool. Paper trading only. Not financial advice.</strong>
+        This app never places orders, never connects to a broker, and never tells you what to buy.
+        It reports arithmetic and rule outcomes. Every decision is yours.
+    </div>
+</footer>
+
+</body>
+</html>

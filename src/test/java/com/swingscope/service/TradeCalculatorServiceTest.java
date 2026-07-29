@@ -13,14 +13,21 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TradeCalculatorServiceTest {
 
     private static final BigDecimal ACCOUNT = new BigDecimal("500");
-    private static final BigDecimal RISK_PCT = new BigDecimal("1.0");
+
+    /** Dollars at risk per trade — an absolute amount, not a percentage of the account. */
+    private static final BigDecimal RISK_AMOUNT = new BigDecimal("5.00");
 
     private final TradeCalculatorService calculator =
             new TradeCalculatorService(new TradingRules(null, null, null));
 
     private static TradeSetup setup(String ticker, String entry, String stop, String target) {
+        return setup(ticker, entry, stop, target, RISK_AMOUNT);
+    }
+
+    private static TradeSetup setup(String ticker, String entry, String stop, String target,
+                                    BigDecimal riskAmount) {
         return new TradeSetup(ticker, new BigDecimal(entry), new BigDecimal(stop),
-                new BigDecimal(target), ACCOUNT, RISK_PCT);
+                new BigDecimal(target), ACCOUNT, riskAmount);
     }
 
     @Test
@@ -31,7 +38,7 @@ class TradeCalculatorServiceTest {
         assertThat(result.riskPerShare()).isEqualByComparingTo("1.00");
         assertThat(result.rewardPerShare()).isEqualByComparingTo("3.60");
         assertThat(result.ratio()).isEqualByComparingTo("3.60");
-        assertThat(result.wholeShares()).isEqualTo(5);   // $5 risk budget / $1.00 per share
+        assertThat(result.wholeShares()).isEqualTo(5);   // $5.00 risk budget / $1.00 per share
         assertThat(result.totalRisk()).isEqualByComparingTo("5.00");
         assertThat(result.positionCost()).isEqualByComparingTo("200.00");
         assertThat(result.cashLeft()).isEqualByComparingTo("300.00");
@@ -111,6 +118,45 @@ class TradeCalculatorServiceTest {
         assertThat(result.positionCost()).isEqualByComparingTo("0.00");
         assertThat(result.pass()).isFalse();
         assertThat(result.reason()).isEqualTo("position size is 0 shares — entry price exceeds the account balance");
+    }
+
+    @Test
+    @DisplayName("the risk budget is taken as dollars, not as a percentage of the account")
+    void riskAmountIsAnAbsoluteDollarFigure() {
+        // $25 at risk over a $1.00 stop distance is 25 shares — if this were read as 25% of a $500
+        // account it would be $125 and 125 shares, which the $500 balance could not buy anyway.
+        TradeAnalysis result = calculator.analyze(
+                setup("VZ", "40.00", "39.00", "43.60", new BigDecimal("25.00")));
+
+        assertThat(result.idealShares()).isEqualByComparingTo("25.0000");
+        assertThat(result.wholeShares()).isEqualTo(12);   // $500 ÷ $40 caps it at 12
+        assertThat(result.totalRisk()).isEqualByComparingTo("12.00");
+        assertThat(result.pass()).isTrue();
+        assertThat(result.reason()).isEqualTo("PASS (size capped by available cash, not by the risk budget)");
+    }
+
+    @Test
+    @DisplayName("halving the risk budget halves the size")
+    void smallerRiskBudgetBuysFewerShares() {
+        TradeAnalysis result = calculator.analyze(
+                setup("VZ", "40.00", "39.00", "43.60", new BigDecimal("2.50")));
+
+        assertThat(result.wholeShares()).isEqualTo(2);
+        assertThat(result.totalRisk()).isEqualByComparingTo("2.00");
+        assertThat(result.positionCost()).isEqualByComparingTo("80.00");
+        assertThat(result.pass()).isTrue();
+    }
+
+    @Test
+    @DisplayName("a risk budget larger than the account still sizes by cash and passes")
+    void riskBudgetLargerThanTheAccountIsCappedByCash() {
+        TradeAnalysis result = calculator.analyze(
+                setup("VZ", "40.00", "39.00", "43.60", new BigDecimal("900.00")));
+
+        assertThat(result.wholeShares()).isEqualTo(12);
+        assertThat(result.positionCost()).isEqualByComparingTo("480.00");
+        assertThat(result.cashLeft()).isEqualByComparingTo("20.00");
+        assertThat(result.pass()).isTrue();
     }
 
     @Test

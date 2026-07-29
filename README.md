@@ -24,7 +24,7 @@ places the actual (paper) order in the broker.
 | Phase | Scope | Status |
 |---|---|---|
 | 1 | Core calculator — sizing math + `POST /api/analyze` | ✅ Done |
-| 2 | Thymeleaf calculator UI | ⬜ Not started |
+| 2 | Thymeleaf calculator UI | ✅ Done |
 | 3 | Market data (Twelve Data primary, Finnhub secondary) | ⬜ Not started |
 | 4 | Auto-tiering & watchlist scan | ⬜ Not started |
 | 5 | Trade journal UI + optional Spring AI | ⬜ Not started |
@@ -36,11 +36,11 @@ Full task breakdown: [swing-trade-assistant-implementation-plan.md](swing-trade-
 ## Tech stack
 
 - Java 17 (enforced via `maven.compiler.release=17`; builds fine on a newer JDK)
-- Spring Boot 3.3.5 — Spring Web, Bean Validation
+- Spring Boot 3.3.5 — Spring Web, Bean Validation, Thymeleaf
 - Maven
 - JUnit 5 + AssertJ + MockMvc, JaCoCo with an **80% line/branch/instruction gate**
 
-Phases 3–5 add Thymeleaf, Spring Data JPA (H2 file mode), and optionally Spring AI.
+Phases 3–5 add Spring Data JPA (H2 file mode) and optionally Spring AI.
 
 ## Prerequisites
 
@@ -53,16 +53,31 @@ No API key is needed for Phase 1 — the calculator makes no external calls.
 
 ## Running it
 
-Start the app on port 8080:
+Start the app:
 
 ```bash
 mvn spring-boot:run
 ```
 
-Analyze a setup:
+Then open the calculator in a browser — note the `/swing-scope` context path:
+
+**http://localhost:8080/swing-scope/**
+
+Fill in ticker, entry, stop and target (account size and risk $ are prefilled from config) and hit
+**Analyze**. The verdict appears below the form: reward:risk in green when it clears the 2.0 minimum
+and red when it doesn't, the share count with the unrounded ideal beside it, and — on a PASS only —
+a trade-management panel (time stop, take profit into resistance, trailing rules, earnings check).
+
+A rule failure is *not* an error: the form comes back with a red **FAIL** badge and the reason
+("ratio 1.87 < 2.0"). Only structurally invalid input (blank ticker, negative or non-numeric prices)
+redisplays the form with per-field messages and no verdict.
+
+### The same thing over HTTP
+
+All API paths sit under the context path too. Analyze a setup:
 
 ```bash
-curl -s -X POST http://localhost:8080/api/analyze -H 'Content-Type: application/json' -d '{"ticker":"VZ","entry":40.00,"stop":39.00,"target":43.60,"accountSize":500,"riskPct":1.0}'
+curl -s -X POST http://localhost:8080/swing-scope/api/analyze -H 'Content-Type: application/json' -d '{"ticker":"VZ","entry":40.00,"stop":39.00,"target":43.60,"accountSize":500,"riskAmount":5.00}'
 ```
 
 Response:
@@ -86,7 +101,7 @@ Response:
 A setup that breaks a rule still returns HTTP 200 — the verdict lives in `pass` and `reason`:
 
 ```bash
-curl -s -X POST http://localhost:8080/api/analyze -H 'Content-Type: application/json' -d '{"ticker":"CI","entry":20.00,"stop":19.00,"target":21.87,"accountSize":500,"riskPct":1.0}'
+curl -s -X POST http://localhost:8080/swing-scope/api/analyze -H 'Content-Type: application/json' -d '{"ticker":"CI","entry":20.00,"stop":19.00,"target":21.87,"accountSize":500,"riskAmount":5.00}'
 ```
 
 → `"pass": false, "reason": "ratio 1.87 < 2.0"`.
@@ -111,11 +126,20 @@ mvn test
 
 ---
 
-## API
+## Routes
+
+Everything is served under the `/swing-scope` context path (`server.servlet.context-path`).
+
+| Route | Method | Purpose |
+|---|---|---|
+| `/swing-scope/` | GET | Calculator form |
+| `/swing-scope/analyze` | POST | Form submit → same page with the verdict |
+| `/swing-scope/api/analyze` | POST | JSON API |
 
 ### `POST /api/analyze`
 
-Request — `riskPct` is **percent form**: `1.0` means 1% of the account.
+Request — `riskAmount` is **dollars**, the most you're willing to lose if the stop fills. It is an
+absolute figure, not a percentage of the account.
 
 | Field | Type | Rule |
 |---|---|---|
@@ -124,7 +148,7 @@ Request — `riskPct` is **percent form**: `1.0` means 1% of the account.
 | `stop` | decimal | > 0, and below `entry` |
 | `target` | decimal | > 0, and above `entry` |
 | `accountSize` | decimal | > 0 |
-| `riskPct` | decimal | > 0, percent form (`1.0` = 1%) |
+| `riskAmount` | decimal | > 0, dollars at risk (`5.00` = $5) |
 
 Response fields: `riskPerShare`, `rewardPerShare`, `ratio`, `idealShares` (unrounded),
 `wholeShares` (tradeable), `totalRisk`, `positionCost`, `cashLeft`, `pass`, `reason`.
@@ -137,7 +161,7 @@ Response fields: `riskPerShare`, `rewardPerShare`, `ratio`, `idealShares` (unrou
 riskPerShare    = entry − stop                      (guard: stop < entry)
 rewardPerShare  = target − entry                    (guard: target > entry)
 ratio           = rewardPerShare ÷ riskPerShare     (scale 2, HALF_UP)
-riskBudget      = accountSize × riskPct ÷ 100       ($500 @ 1% = $5)
+riskBudget      = riskAmount                        (stated directly in dollars, e.g. $5.00)
 idealShares     = riskBudget ÷ riskPerShare
 wholeShares     = min( floor(idealShares), floor(accountSize ÷ entry) )
 pass            = ratio ≥ 2.0  AND  wholeShares ≥ 1
@@ -170,10 +194,14 @@ trading:
   rules:
     min-risk-reward: 2.0        # minimum reward:risk to PASS
     default-account-size: 500
-    default-risk-pct: 1.0       # percent form
+    default-risk-amount: 5.00   # dollars at risk per trade
 ```
 
 Override at runtime, e.g. `--trading.rules.min-risk-reward=3.0`.
+
+`default-risk-amount` only prefills the form — the figure that actually sizes a trade is whatever
+you type in the **Risk $** field (or post as `riskAmount`). If you prefer to think in percentages,
+work it out yourself and enter the result: 1% of a $500 account is `5.00`.
 
 From Phase 3 on, provider API keys (Twelve Data, optionally Finnhub) come from **environment
 variables only** — never committed. `application-local.yml`, `application-secrets.yml`, and `.env`
@@ -201,7 +229,13 @@ src/main/java/com/swingscope/
   config/    TradingRules (configurable domain rules), RequestLoggingFilter
   domain/    TradeSetup, TradeAnalysis
   service/   TradeCalculatorService — all the math
-  web/       TradeAnalysisController, ApiExceptionHandler
+  web/       TradeAnalysisController (JSON), WebController (UI),
+             TradeSetupForm, ApiExceptionHandler
+
+src/main/resources/
+  templates/calculator.html, templates/fragments/layout.html
+  static/css/app.css
+  application.yml
 ```
 
 ## Non-goals

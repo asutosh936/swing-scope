@@ -4,12 +4,14 @@ spring:
 
 server:
   port: 8080
+  servlet:
+    context-path: /swing-scope
 
 trading:
   rules:
     min-risk-reward: 2.0
     default-account-size: 500
-    default-risk-pct: 1.0
+    default-risk-amount: 5.00   # dollars at risk per trade
 
 logging:
   level:

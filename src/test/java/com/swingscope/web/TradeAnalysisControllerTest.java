@@ -37,7 +37,7 @@ class TradeAnalysisControllerTest {
                                   "stop": 39.00,
                                   "target": 43.60,
                                   "accountSize": 500,
-                                  "riskPct": 1.0
+                                  "riskAmount": 5.00
                                 }
                                 """))
                 .andExpect(status().isOk())
@@ -60,7 +60,7 @@ class TradeAnalysisControllerTest {
                                   "stop": 19.00,
                                   "target": 21.87,
                                   "accountSize": 500,
-                                  "riskPct": 1.0
+                                  "riskAmount": 5.00
                                 }
                                 """))
                 .andExpect(status().isOk())
@@ -79,7 +79,7 @@ class TradeAnalysisControllerTest {
                                   "stop": 39.00,
                                   "target": 43.60,
                                   "accountSize": 500,
-                                  "riskPct": 1.0
+                                  "riskAmount": 5.00
                                 }
                                 """))
                 .andExpect(status().isBadRequest())
@@ -103,7 +103,7 @@ class TradeAnalysisControllerTest {
                 .andExpect(jsonPath("$.status").value(400))
                 .andExpect(jsonPath("$.fieldErrors.ticker").exists())
                 .andExpect(jsonPath("$.fieldErrors.accountSize").exists())
-                .andExpect(jsonPath("$.fieldErrors.riskPct").exists());
+                .andExpect(jsonPath("$.fieldErrors.riskAmount").exists());
     }
 
     @Test

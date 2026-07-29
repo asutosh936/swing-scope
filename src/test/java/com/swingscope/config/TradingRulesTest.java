@@ -14,16 +14,16 @@ class TradingRulesTest {
 
         assertThat(rules.minRiskReward()).isEqualByComparingTo("2.0");
         assertThat(rules.defaultAccountSize()).isEqualByComparingTo("500");
-        assertThat(rules.defaultRiskPct()).isEqualByComparingTo("1");
+        assertThat(rules.defaultRiskAmount()).isEqualByComparingTo("5");
     }
 
     @Test
     void keepsConfiguredValues() {
         TradingRules rules = new TradingRules(
-                new BigDecimal("3.0"), new BigDecimal("2500"), new BigDecimal("0.5"));
+                new BigDecimal("3.0"), new BigDecimal("2500"), new BigDecimal("25.00"));
 
         assertThat(rules.minRiskReward()).isEqualByComparingTo("3.0");
         assertThat(rules.defaultAccountSize()).isEqualByComparingTo("2500");
-        assertThat(rules.defaultRiskPct()).isEqualByComparingTo("0.5");
+        assertThat(rules.defaultRiskAmount()).isEqualByComparingTo("25.00");
     }
 }

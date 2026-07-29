@@ -7,15 +7,15 @@ import java.math.BigDecimal;
 /**
  * Domain rules from the plan, kept in config so they are tunable without touching the math.
  *
- * @param minRiskReward     minimum reward:risk a setup must clear to PASS
+ * @param minRiskReward      minimum reward:risk a setup must clear to PASS
  * @param defaultAccountSize UI/API default account size
- * @param defaultRiskPct    UI/API default risk per trade, percent form (1.0 = 1%)
+ * @param defaultRiskAmount  UI default dollars at risk per trade (the $500 @ 1% of the plan = $5)
  */
 @ConfigurationProperties(prefix = "trading.rules")
 public record TradingRules(
         BigDecimal minRiskReward,
         BigDecimal defaultAccountSize,
-        BigDecimal defaultRiskPct
+        BigDecimal defaultRiskAmount
 ) {
 
     public TradingRules {
@@ -25,8 +25,8 @@ public record TradingRules(
         if (defaultAccountSize == null) {
             defaultAccountSize = new BigDecimal("500");
         }
-        if (defaultRiskPct == null) {
-            defaultRiskPct = BigDecimal.ONE;
+        if (defaultRiskAmount == null) {
+            defaultRiskAmount = new BigDecimal("5");
         }
     }
 }

@@ -1,0 +1,13 @@
+target/
+logs/
+!.mvn/wrapper/maven-wrapper.jar
+
+# Real config with secrets — only application-example.yml is committed (Phase 3)
+application-local.yml
+application-secrets.yml
+.env
+
+.idea/
+*.iml
+.vscode/
+.DS_Store

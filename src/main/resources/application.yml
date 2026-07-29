@@ -1,0 +1,21 @@
+spring:
+  application:
+    name: swing-scope
+
+server:
+  port: 8080
+
+trading:
+  rules:
+    min-risk-reward: 2.0
+    default-account-size: 500
+    default-risk-pct: 1.0
+
+logging:
+  level:
+    root: INFO
+    com.swingscope: DEBUG
+  pattern:
+    console: "%d{HH:mm:ss.SSS} %-5level [%X{requestId:-        }] %logger{36} - %msg%n"
+  file:
+    name: logs/swing-scope.log

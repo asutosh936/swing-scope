@@ -1,0 +1,46 @@
+# Example configuration — copy to application-local.yml (git-ignored) and adjust.
+#
+# API keys are read from environment variables by default; you should not need to put a key in a
+# file at all. Never commit a real key.
+#
+#   export TWELVEDATA_API_KEY="your-twelve-data-key"   # https://twelvedata.com/pricing (free tier)
+#   export FINNHUB_API_KEY="your-finnhub-key"          # https://finnhub.io/pricing   (free tier)
+#
+# Run with this profile:  mvn spring-boot:run -Dspring-boot.run.profiles=local
+
+server:
+  port: 8080
+  servlet:
+    context-path: /swing-scope
+
+trading:
+  rules:
+    min-risk-reward: 2.0
+    default-account-size: 500
+    default-risk-amount: 5.00      # dollars at risk per trade
+
+marketdata:
+  twelvedata:
+    base-url: https://api.twelvedata.com
+    api-key: ${TWELVEDATA_API_KEY:}
+    enabled: true
+    retries: 2
+    retry-backoff: 500ms
+  finnhub:
+    base-url: https://finnhub.io/api/v1
+    api-key: ${FINNHUB_API_KEY:}
+    enabled: true                  # set false to run on Twelve Data alone
+    retries: 2
+    retry-backoff: 500ms
+  ttl:
+    quote: 5m
+    candles: 6h
+    earnings: 12h
+    profile: 24h
+    search: 24h
+    market-status: 10m
+
+logging:
+  level:
+    root: INFO
+    com.swingscope: DEBUG

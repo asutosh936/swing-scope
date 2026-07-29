@@ -92,13 +92,13 @@ Status legend: ☐ Not started · ◐ In progress · ☑ Done
 | | 2.3 | Ratio color-coding (red < 2, green ≥ 2) | ☑ |
 | | 2.4 | Management-rules panel on PASS | ☑ |
 | | 2.5 | Base layout + stylesheet | ☑ |
-| **3 — Market Data Integration** | 3.1 | Config + `@ConfigurationProperties` (Twelve Data + optional Finnhub keys via env) | ☐ |
-| | 3.2 | `MarketDataProvider` interface + `TwelveDataClient` (primary) + `FinnhubClient` (secondary) | ☐ |
-| | 3.3 | DTOs matched to real JSON per provider (curl-verify first) | ☐ |
-| | 3.4 | Error handling (429 backoff, status:error/no_data, unknown symbol, Finnhub 403) | ☐ |
-| | 3.5 | `EmaCalculator` from Twelve Data closes + hand-checked test | ☐ |
-| | 3.6 | Caching (`@Cacheable`, respect 800/day) | ☐ |
-| | 3.7 | `GET /api/marketdata/{symbol}` snapshot (assembled across providers) | ☐ |
+| **3 — Market Data Integration** | 3.1 | Config + `@ConfigurationProperties` (Twelve Data + optional Finnhub keys via env) | ☑ |
+| | 3.2 | `MarketDataProvider` interface + `TwelveDataClient` (primary) + `FinnhubClient` (secondary) | ☑ |
+| | 3.3 | DTOs matched to real JSON per provider (curl-verify first) | ◐ built from documented shapes; live curl pending a key |
+| | 3.4 | Error handling (429 backoff, status:error/no_data, unknown symbol, Finnhub 403) | ☑ |
+| | 3.5 | `EmaCalculator` from Twelve Data closes + hand-checked test | ☑ |
+| | 3.6 | Caching (`@Cacheable`, respect 800/day) | ☑ |
+| | 3.7 | `GET /api/marketdata/{symbol}` snapshot (assembled across providers) | ☑ |
 | **4 — Auto-Tiering & Scan** | 4.1 | `TierService.tier(tickers)` with rule engine | ☐ |
 | | 4.2 | `Watchlist` entity + CRUD + UI list | ☐ |
 | | 4.3 | `scan.html` (paste tickers / scan watchlist → tiered table) | ☐ |
@@ -114,11 +114,11 @@ Status legend: ☐ Not started · ◐ In progress · ☑ Done
 | | 5.8 | "Plan this trade" → auto-creates a PLANNED journal entry | ☐ |
 | | 5.9 | (optional) Spring AI news-summary endpoint | ☐ |
 | | 5.10 | (optional) Spring AI journal-narrative endpoint | ☐ |
-| **Cross-cutting** | X.1 | Config & secrets (env var, example yml, git-ignore) | ◐ |
+| **Cross-cutting** | X.1 | Config & secrets (env var, example yml, git-ignore) | ☑ |
 | | X.2 | Bean Validation on `TradeSetup` | ◐ |
-| | X.3 | Tests: calculator + EMA + provider clients (MockRestServiceServer) | ◐ |
+| | X.3 | Tests: calculator + EMA + provider clients (MockRestServiceServer) | ☑ |
 | | X.4 | README + disclaimer | ☑ |
-| | X.5 | Logging (external calls + rate-limit hits) | ◐ |
+| | X.5 | Logging (external calls + rate-limit hits) | ☑ |
 | | X.6 | JaCoCo coverage gate (≥80% line/branch/instruction) | ☑ |
 
 ---
@@ -159,7 +159,7 @@ Decisions made while building (carry these forward):
 - **Coverage gate**: `mvn verify` fails below 80% line/branch/instruction (JaCoCo, `SwingScopeApplication` excluded). Currently 100%.
 - Not committed — working tree only, per instruction.
 
-**Deferred to later phases:** the cross-field `stop < entry < target` check lives in the service, not as a Bean Validation constraint (X.2); `application-example.yml` waits on Phase 3's provider keys (X.1).
+**Deferred to later phases:** the cross-field `stop < entry < target` check lives in the service, not as a Bean Validation constraint (X.2).
 
 ---
 
@@ -207,6 +207,18 @@ Decisions made while building (carry these forward):
 7. Endpoint `GET /api/marketdata/{symbol}` returning a combined snapshot (price, change%, EMA20/50/200, volume, nextEarningsDate) — assembled across providers behind the `MarketDataProvider` abstraction.
 
 **Deliverable:** given a ticker, the app returns a full data snapshot with EMAs computed in-house.
+
+### Phase 3 — Status: ☑ Built (113 tests green; 99.0% instruction / 92.9% branch / 98.9% line)
+- **Capability-based provider interface.** `MarketDataProvider` declares a `Capability` enum (QUOTE, DAILY_CANDLES, SYMBOL_SEARCH, EARNINGS, MARKET_STATUS, COMPANY_PROFILE); every method defaults to throwing `ProviderUnavailableException`, so an implementation overrides only what it serves. `MarketDataService.provider(capability)` picks the first available provider offering it — swapping or adding a source needs no service change. Phase 4's `TierService` should depend on `MarketDataService`, never on a client directly.
+- **Split:** Twelve Data = quote + candles + search. Finnhub = earnings + market status + company profile. Finnhub deliberately does **not** declare DAILY_CANDLES, and a 403 from any endpoint produces a "may require a paid plan" message rather than a generic failure.
+- **Twelve Data returns HTTP 200 with `{"status":"error","code":429}` bodies**, so every response payload is inspected, not just the HTTP status. Its numbers all arrive as JSON strings, and its candles come newest-first — the client flips them chronological because the EMA walk depends on the order.
+- **EMA convention:** seed with the SMA of the first N closes, then `close × k + prev × (1−k)` with `k = 2/(N+1)`; results at 4 dp, 16-digit working precision. Hand-checked in tests step by step. `null` rather than a guess when history is short.
+- **Snapshot policy:** quote and candles are required (failure propagates); market cap and earnings are best-effort and degrade to a `warnings` entry. `inUptrend` is `Boolean` — `null` means "not enough history", which Phase 4 must treat as SKIP-with-reason, not as false.
+- **Caching:** Caffeine, per-endpoint TTLs (quote 5m, candles 6h, earnings 12h, profile/search 24h, status 10m), sized against Twelve Data's 800/day and 8/min. 429s retry twice with doubling backoff before surfacing.
+- **HTTP mapping:** unknown symbol → 404, rate limit → 429 + `Retry-After`, unconfigured/premium → 503, anything else upstream → 502. Each body names the provider that failed.
+- **Java 17 note:** `BigDecimal.TWO` is Java 19+ and broke the build; the EMA multiplier uses a local constant. Worth remembering for later phases.
+- **Open item (3.3):** DTOs were written from each provider's documented response shape and are covered by `MockRestServiceServer` tests, but have **not** been curl-verified against live JSON — no API key was available in the build environment. Run `scratchpad/verify-provider-json.sh` once `TWELVEDATA_API_KEY` and `FINNHUB_API_KEY` are exported, and reconcile any field-name differences before trusting Phase 4's tiering.
+- Not committed — working tree only, per instruction.
 
 ---
 

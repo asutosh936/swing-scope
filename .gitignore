@@ -11,3 +11,7 @@ application-secrets.yml
 *.iml
 .vscode/
 .DS_Store
+
+# Claude Code local files (agent settings, preview launch config)
+.claude/
+CLAUDE.local.md

@@ -17,14 +17,14 @@ marketdata:
   # Primary: quotes, daily candles (the EMA input), symbol search.
   twelvedata:
     base-url: https://api.twelvedata.com
-    api-key: ${TWELVEDATA_API_KEY:4615c3c5f4f64a56b1052ae08e6bca06}
+    api-key: ${TWELVEDATA_API_KEY:}
     enabled: true
     retries: 2
     retry-backoff: 500ms
   # Secondary: earnings, market status, market cap. Never candles — those are premium-only now.
   finnhub:
     base-url: https://finnhub.io/api/v1
-    api-key: ${FINNHUB_API_KEY:d9knf5pr01qshkrni72gd9knf5pr01qshkrni730}
+    api-key: ${FINNHUB_API_KEY:}
     enabled: true
     retries: 2
     retry-backoff: 500ms

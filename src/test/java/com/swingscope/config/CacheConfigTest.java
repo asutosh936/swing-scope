@@ -15,7 +15,8 @@ class CacheConfigTest {
     void definesACacheForEveryProviderCall() {
         assertThat(cacheManager.getCacheNames()).containsExactlyInAnyOrder(
                 CacheConfig.QUOTES, CacheConfig.CANDLES, CacheConfig.EARNINGS,
-                CacheConfig.PROFILE, CacheConfig.SEARCH, CacheConfig.MARKET_STATUS);
+                CacheConfig.PROFILE, CacheConfig.SEARCH, CacheConfig.NEWS,
+                CacheConfig.MARKET_STATUS);
     }
 
     @Test

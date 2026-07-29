@@ -44,6 +44,23 @@ final class FinnhubDtos {
     ) {
     }
 
+    /**
+     * One /company-news entry. The endpoint returns a bare JSON array, not an object wrapper, and
+     * {@code datetime} is epoch <em>seconds</em>.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record NewsResponse(
+            String category,
+            Long datetime,
+            String headline,
+            Long id,
+            String related,
+            String source,
+            String summary,
+            String url
+    ) {
+    }
+
     @JsonIgnoreProperties(ignoreUnknown = true)
     record CompanyProfileResponse(
             String ticker,

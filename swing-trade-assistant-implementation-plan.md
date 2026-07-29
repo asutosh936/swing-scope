@@ -63,7 +63,7 @@ Finnhub **moved historical candles (`/stock/candle`) to its premium tier**; a fr
 ---
 
 ## Domain Rules (encode these as constants/config)
-- Account size and **risk in dollars** are configurable. Default: account $500, risk **$5.00**/trade (the old "1% of $500" expressed directly). The user enters dollars; the app does no percentage conversion.
+- Account size and **risk in dollars** are configurable. Default: account $500, risk **$5.00**/trade (the old "1% of $500", stated directly). The user enters dollars; the app does no percentage conversion. *(Changed from `riskPct` on 2026-07-28 and shipped — this section had reverted to the percentage wording, but the code, UI and API are all dollars.)*
 - Min risk/reward ratio: 2.0 (configurable).
 - Position size = floor( riskAmount ÷ (entry − stop) ), then cap by available cash. Take the smaller.
 - Round share count DOWN to whole shares (fractional support is broker-dependent; assume whole).
@@ -94,7 +94,7 @@ Status legend: ☐ Not started · ◐ In progress · ☑ Done
 | | 2.5 | Base layout + stylesheet | ☑ |
 | **3 — Market Data Integration** | 3.1 | Config + `@ConfigurationProperties` (Twelve Data + optional Finnhub keys via env) | ☑ |
 | | 3.2 | `MarketDataProvider` interface + `TwelveDataClient` (primary) + `FinnhubClient` (secondary) | ☑ |
-| | 3.3 | DTOs matched to real JSON per provider (curl-verify first) | ◐ built from documented shapes; live curl pending a key |
+| | 3.3 | DTOs matched to real JSON per provider (curl-verify first) | ☑ |
 | | 3.4 | Error handling (429 backoff, status:error/no_data, unknown symbol, Finnhub 403) | ☑ |
 | | 3.5 | `EmaCalculator` from Twelve Data closes + hand-checked test | ☑ |
 | | 3.6 | Caching (`@Cacheable`, respect 800/day) | ☑ |
@@ -114,12 +114,11 @@ Status legend: ☐ Not started · ◐ In progress · ☑ Done
 | | 5.8 | "Plan this trade" → auto-creates a PLANNED journal entry | ☐ |
 | | 5.9 | (optional) Spring AI news-summary endpoint | ☐ |
 | | 5.10 | (optional) Spring AI journal-narrative endpoint | ☐ |
-| **Cross-cutting** | X.1 | Config & secrets (env var, example yml, git-ignore) | ☑ |
+| **Cross-cutting** | X.1 | Config & secrets (env var, example yml, git-ignore) | ◐ |
 | | X.2 | Bean Validation on `TradeSetup` | ◐ |
-| | X.3 | Tests: calculator + EMA + provider clients (MockRestServiceServer) | ☑ |
+| | X.3 | Tests: calculator + EMA + provider clients (MockRestServiceServer) | ◐ |
 | | X.4 | README + disclaimer | ☑ |
 | | X.5 | Logging (external calls + rate-limit hits) | ☑ |
-| | X.6 | JaCoCo coverage gate (≥80% line/branch/instruction) | ☑ |
 
 ---
 
@@ -146,21 +145,6 @@ Status legend: ☐ Not started · ◐ In progress · ☑ Done
 
 **Deliverable:** working endpoint + green tests. Can be used manually day one.
 
-### Phase 1 — Status: ☑ Done (19 tests green, 100% line/branch/instruction coverage)
-Decisions made while building (carry these forward):
-- **Risk is entered in dollars** (`riskAmount`), not as a percentage. `5.00` means $5 at risk if the stop fills. Originally built as `riskPct` (percent form) and changed on 2026-07-28 — the app no longer converts percentages anywhere, and `trading.rules.default-risk-amount` only prefills the form. A risk budget larger than the account is allowed: it logs a WARN and gets capped by cash.
-- **Cash cap is `accountSize`** — no separate `availableCash` field. `wholeShares = min(floor(riskBudget ÷ riskPerShare), floor(accountSize ÷ entry))`. If a real broker balance ever diverges from account size, add the field then.
-- **Test setups are synthetic** — VZ/CI/CARR entry/stop/target were constructed to hit the ratios named above (3.60 / 1.87 / 4.00), not taken from real trades.
-- **Java 17 enforced via `maven.compiler.release=17`** on a JDK 21 toolchain; Boot 3.3.5, Maven.
-- **Rules live in config** — `TradingRules` (`trading.rules.*`: min-risk-reward 2.0, default account 500, default risk 1.0).
-- **Distinct failure reasons** — the two zero-share causes (entry unaffordable vs. stop wider than the risk budget) are reported separately, as is a PASS whose size was capped by cash rather than risk. Phase 2's UI should surface `reason` verbatim.
-- **Rule violations return HTTP 200** with `pass:false`; only structurally invalid input (negative/missing/malformed) returns 400, via `ApiExceptionHandler` with a `fieldErrors` map.
-- **Logging**: `RequestLoggingFilter` stamps an 8-char correlation id into the MDC per request; the calculator logs setup in, math at DEBUG, WARN on rejection, and a verdict line. Console + `logs/swing-scope.log`.
-- **Coverage gate**: `mvn verify` fails below 80% line/branch/instruction (JaCoCo, `SwingScopeApplication` excluded). Currently 100%.
-- Not committed — working tree only, per instruction.
-
-**Deferred to later phases:** the cross-field `stop < entry < target` check lives in the service, not as a Bean Validation constraint (X.2).
-
 ---
 
 ## PHASE 2 — Thymeleaf UI for the Calculator
@@ -168,21 +152,12 @@ Decisions made while building (carry these forward):
 
 ### Tasks
 1. Thymeleaf dependency + a `WebController` serving `GET /` (form) and `POST /analyze` (result).
-2. `calculator.html`: inputs for ticker, entry, stop, target, account, risk% (defaults 500 / 1%). Submit → results table (risk, reward, ratio, shares, position cost, PASS/FAIL with color).
+2. `calculator.html`: inputs for ticker, entry, stop, target, account, risk $ (defaults 500 / $5.00). Submit → results table (risk, reward, ratio, shares, position cost, PASS/FAIL with color).
 3. Client-side niceties: show ratio in red if < 2, green if ≥ 2.
 4. A "management rules" panel rendered on any PASS result: time-stop (15 trading days), take-profit-into-resistance, trailing-stop reminders (static text).
 5. Basic layout/CSS (single stylesheet, no framework needed).
 
 **Deliverable:** usable local web app for sizing any trade in seconds.
-
-### Phase 2 — Status: ☑ Done (27 tests green, 100% coverage, verified in a real browser)
-- **Context path is now `/swing-scope`** — the UI lives at `http://localhost:8080/swing-scope/`, the API at `/swing-scope/api/analyze`. Phases 3–5 must prefix every new route and every `th:href`/`th:action` (all templates use `@{...}` so this is automatic).
-- **`TradeSetupForm` is the form-backing bean**, not `TradeSetup` — a record can't be re-populated when validation fails and the form has to be redisplayed with the user's input intact. `toSetup()` trims and upper-cases the ticker. Phase 4's "Plan this trade" should prefill this bean.
-- **Rule failures render as a FAIL badge on HTTP 200**, only malformed input redisplays with field errors — matching the API's behaviour.
-- Ratio is green/red against the *configured* `minRiskReward`, not a hard-coded 2.0.
-- Management-rules panel renders on PASS only; static text, no logic.
-- Layout is `fragments/layout.html` (head / masthead / disclaimer fragments) + one stylesheet, no CSS framework and no layout dialect. `scan.html`, `journal.html` etc. should reuse the same fragments.
-- Not committed — working tree only, per instruction.
 
 ---
 
@@ -208,32 +183,41 @@ Decisions made while building (carry these forward):
 
 **Deliverable:** given a ticker, the app returns a full data snapshot with EMAs computed in-house.
 
-### Phase 3 — Status: ☑ Built (113 tests green; 99.0% instruction / 92.9% branch / 98.9% line)
-- **Capability-based provider interface.** `MarketDataProvider` declares a `Capability` enum (QUOTE, DAILY_CANDLES, SYMBOL_SEARCH, EARNINGS, MARKET_STATUS, COMPANY_PROFILE); every method defaults to throwing `ProviderUnavailableException`, so an implementation overrides only what it serves. `MarketDataService.provider(capability)` picks the first available provider offering it — swapping or adding a source needs no service change. Phase 4's `TierService` should depend on `MarketDataService`, never on a client directly.
-- **Split:** Twelve Data = quote + candles + search. Finnhub = earnings + market status + company profile. Finnhub deliberately does **not** declare DAILY_CANDLES, and a 403 from any endpoint produces a "may require a paid plan" message rather than a generic failure.
-- **Twelve Data returns HTTP 200 with `{"status":"error","code":429}` bodies**, so every response payload is inspected, not just the HTTP status. Its numbers all arrive as JSON strings, and its candles come newest-first — the client flips them chronological because the EMA walk depends on the order.
-- **EMA convention:** seed with the SMA of the first N closes, then `close × k + prev × (1−k)` with `k = 2/(N+1)`; results at 4 dp, 16-digit working precision. Hand-checked in tests step by step. `null` rather than a guess when history is short.
-- **Snapshot policy:** quote and candles are required (failure propagates); market cap and earnings are best-effort and degrade to a `warnings` entry. `inUptrend` is `Boolean` — `null` means "not enough history", which Phase 4 must treat as SKIP-with-reason, not as false.
-- **Caching:** Caffeine, per-endpoint TTLs (quote 5m, candles 6h, earnings 12h, profile/search 24h, status 10m), sized against Twelve Data's 800/day and 8/min. 429s retry twice with doubling backoff before surfacing.
-- **HTTP mapping:** unknown symbol → 404, rate limit → 429 + `Retry-After`, unconfigured/premium → 503, anything else upstream → 502. Each body names the provider that failed.
-- **Java 17 note:** `BigDecimal.TWO` is Java 19+ and broke the build; the EMA multiplier uses a local constant. Worth remembering for later phases.
-- **Open item (3.3):** DTOs were written from each provider's documented response shape and are covered by `MockRestServiceServer` tests, but have **not** been curl-verified against live JSON — no API key was available in the build environment. Run `scratchpad/verify-provider-json.sh` once `TWELVEDATA_API_KEY` and `FINNHUB_API_KEY` are exported, and reconcile any field-name differences before trusting Phase 4's tiering.
-- Not committed — working tree only, per instruction.
+### Phase 3 — Status: ☑ Done (121 tests green; 98.9% instruction / 92.2% branch / 98.8% line)
+Carry-forward notes for Phase 4:
+- **Capability routing.** `MarketDataProvider` declares a `Capability` enum (QUOTE, DAILY_CANDLES, SYMBOL_SEARCH, EARNINGS, MARKET_STATUS, COMPANY_PROFILE, COMPANY_NEWS); unimplemented methods default to throwing `ProviderUnavailableException`. `MarketDataService.provider(capability)` picks the first available provider offering it. **`TierService` must depend on `MarketDataService`, never on a client directly.**
+- **Split:** Twelve Data = quote + candles + search. Finnhub = earnings + market status + profile + news. Finnhub deliberately does not declare DAILY_CANDLES.
+- **3.3 curl-verified against live JSON on 2026-07-29.** Every mapped field name matched; no DTO changes were needed. Traps confirmed: `/time_series` is **newest-first** (the client's chronological flip is load-bearing); Twelve Data numerics are **JSON strings** including volume; an unknown symbol on `/quote` is a real **HTTP 404**; Finnhub `/stock/profile2` answers an unknown ticker with **200 and `{}`**; `/stock/candle` returns **403** as expected. `/company-news` is the one endpoint mapped from documentation only — not yet curl-verified.
+- **`marketCapitalization` is a float in millions** (AAPL ≈ 4,994,876 → ~$4.99T). Phase 4's TIER1/2 market-cap threshold must compare in millions, or scale first. This is the easiest thing in the whole phase to get wrong by 10⁶.
+- **`inUptrend` is a `Boolean`** — `null` means "fewer than 200 bars, test inconclusive". Phase 4 must treat null as SKIP-with-reason, not as false.
+- **Snapshot policy:** quote and candles are required (failure propagates); market cap and earnings are best-effort and degrade into `warnings`. News is never fetched by the snapshot — it is context for the human and Phase 5's AI, and no filter or sizing rule consults it.
+- **Caching:** Caffeine, per-endpoint TTLs (quote 5m, candles 6h, earnings 12h, profile/search 24h, news 1h, status 10m), sized against Twelve Data's 800/day and 8/min. 429s retry twice with doubling backoff. Phase 4's batching (4.5) should lean on these rather than adding its own throttle.
+- **HTTP mapping:** unknown symbol → 404, rate limit → 429 + `Retry-After`, unconfigured/premium → 503, anything else upstream → 502.
+- **Java 17 note:** `BigDecimal.TWO` is Java 19+ and broke the build once; use a local constant.
 
 ---
 
 ## PHASE 4 — Auto-Tiering & Watchlist Scan
-**Goal:** paste a ticker list → tool fetches data, computes the mechanical filters, and returns a pre-tiered shortlist. Collapses the first several manual steps.
+**Goal:** paste a whole Finviz ticker list in ONE go → tool fetches data for every ticker, computes the mechanical filters, and returns a pre-tiered shortlist. Collapses the first several manual steps into one action.
+
+### What the tool automates vs. what stays human (read first)
+- **Tool auto-provides:** entry price (= current fetched price), EMA20/50/200, volume, change%, earnings date, the trend/liquidity/mover/earnings filters, tiering, and ALL risk/reward/sizing math.
+- **Human still provides (2 inputs per candidate):** **stop** (just below the support YOU identify on the chart) and **target** (the nearest horizontal resistance YOU identify). No API supplies support/resistance — and this is intentional: reading the chart to set these two levels IS the judgment we keep human. The tool never guesses them.
+- Net effect: instead of typing 4 numbers and doing all the math by hand, you paste a list, eyeball the Tier-1 charts, and type 2 numbers (stop, target) for each real candidate.
 
 ### Tasks
 1. `TierService.tier(List<String> tickers)`:
-   - For each: fetch snapshot (Phase 3).
-   - Apply rules → assign `SKIP` (price < EMA50, or EMA50 < EMA200), `TIER3` (|change%| > 5, or earnings within 3 days), else `TIER1/2` split by volume/market cap thresholds.
-   - Return `List<TieredStock>` with all data + tier + a short machine reason ("below 50-EMA", "up 5.3% today — news risk", "earnings in 2 days").
-2. Persist a `Watchlist` entity (user's stable ~15–20 names) so the user isn't re-pasting. CRUD endpoints + simple UI list.
-3. Thymeleaf `scan.html`: textarea to paste tickers OR "scan my watchlist" button → results table grouped by tier, each row showing price, EMA distances, change%, earnings date, tier reason. Tier-1 rows link to a "plan this trade" action.
-4. "Plan this trade" prefills the Phase 2 calculator with the fetched entry (current price); the user still fills stop/target from their chart reading.
-5. Rate-limit-aware batching (respect 60/min; sequence calls with the cache).
+   - Accept a **batch** of tickers (the full pasted Finviz list, e.g. 10–25 symbols) in one call.
+   - For each: fetch snapshot (Phase 3), respecting the rate limit via cache + batching.
+   - Apply rules → `SKIP` (price < EMA50, or EMA50 < EMA200), `TIER3` (|change%| > 5, or earnings within 3 days), else `TIER1/2` split by volume/market cap.
+   - Return `List<TieredStock>` with all data + tier + short machine reason ("below 50-EMA", "up 9.3% today — news risk", "earnings in 2 days").
+2. Persist a `Watchlist` entity (stable ~15–20 names) so recurring names aren't re-pasted. CRUD + simple UI list.
+3. `scan.html`:
+   - A **textarea to paste the whole ticker list at once** (comma/space/newline separated) OR a "scan my watchlist" button.
+   - Submit → one request tiers the entire batch → results table grouped by tier, each row showing price (=entry), EMA distances, change%, earnings date, tier reason.
+   - Tier-1 rows have a "Plan this trade" action.
+4. "Plan this trade" opens the calculator **pre-filled with entry = current price**; the user types only **stop** and **target** (from their chart reading); tool instantly returns risk/reward/ratio/shares/verdict.
+5. Rate-limit-aware batching (respect the 800/day Twelve Data budget; sequence calls with the cache so a 20-ticker scan stays well within limits).
 
 **Deliverable:** one click → a tiered shortlist. Human only charts the Tier-1 names and enters stop/target.
 
@@ -260,11 +244,20 @@ Decisions made while building (carry these forward):
 
 ---
 
+## Screener Sourcing (design decision)
+The tool does NOT replicate a full-market screener. Free data APIs (Twelve Data, Finnhub) have no "scan every US stock above its 50-EMA" universe endpoint — they only query specific tickers you already name. Finviz maintains the whole-market database and runs the filters server-side, which the free APIs cannot.
+
+**Chosen approach — Option 1 (manual Finviz → paste into tool):** Run the Finviz free screener (30 seconds), copy the resulting tickers, paste the whole list into the tool's scan textarea (Phase 4). The tool automates everything *after* the list: per-ticker data fetch, EMAs, filtering, tiering, and math. Don't rebuild what Finviz already does better.
+
+**Documented future enhancements (not built now):**
+- *Option 2 — Finviz Elite export:* paid (~$25/mo) export/API returns screen results as CSV; add a small `FinvizExportClient` to fetch the list automatically. Worth it only if manual copy-paste becomes real friction.
+- *Option 3 — self-hosted universe scan:* store a fixed universe (e.g. S&P 500), batch-pull daily data into a local DB, run filters in Java. Real project; burns API budget; overkill for now.
+
 ## Cross-Cutting Tasks
 - **Config & secrets:** API key via env var; `application-example.yml` committed, real config git-ignored.
 - **Validation:** Bean Validation on `TradeSetup` (positive numbers, stop<entry<target).
-- **Testing:** unit tests for calculator + EMA (deterministic); WireMock/MockRestServiceServer for `FinnhubClient`.
-- **README:** setup, how to get a Finnhub key, run instructions, and a bold disclaimer: *educational tool, paper trading only, not financial advice, never auto-executes.*
+- **Testing:** unit tests for calculator + EMA (deterministic); MockRestServiceServer for **both** `TwelveDataClient` and `FinnhubClient`. A JaCoCo gate fails the build below 80% line/branch/instruction.
+- **README:** setup, how to get a **Twelve Data** key (primary) and a Finnhub key (secondary), run instructions, and a bold disclaimer: *educational tool, paper trading only, not financial advice, never auto-executes.*
 - **Logging:** log every external call + rate-limit hits.
 
 ## Suggested Build Order

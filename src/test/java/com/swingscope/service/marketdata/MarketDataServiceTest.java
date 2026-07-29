@@ -6,12 +6,14 @@ import com.swingscope.domain.marketdata.CompanyProfile;
 import com.swingscope.domain.marketdata.EarningsEvent;
 import com.swingscope.domain.marketdata.MarketSnapshot;
 import com.swingscope.domain.marketdata.MarketStatus;
+import com.swingscope.domain.marketdata.NewsItem;
 import com.swingscope.domain.marketdata.Quote;
 import com.swingscope.domain.marketdata.SymbolMatch;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -39,6 +41,9 @@ class MarketDataServiceTest {
         List<SymbolMatch> matches = List.of();
         RuntimeException profileFailure;
         RuntimeException earningsFailure;
+        List<NewsItem> news = List.of();
+        LocalDate newsFrom;
+        LocalDate newsTo;
         int quoteCalls;
 
         FakeProvider(String name, Set<Capability> capabilities) {
@@ -97,6 +102,13 @@ class MarketDataServiceTest {
             }
             return profile;
         }
+
+        @Override
+        public List<NewsItem> getCompanyNews(String symbol, LocalDate from, LocalDate to) {
+            newsFrom = from;
+            newsTo = to;
+            return news;
+        }
     }
 
     /** A rising series: 250 bars climbing steadily, so price > EMA50 > EMA200. */
@@ -135,7 +147,8 @@ class MarketDataServiceTest {
         FakeProvider p = new FakeProvider("fake-secondary", Set.of(
                 MarketDataProvider.Capability.EARNINGS,
                 MarketDataProvider.Capability.MARKET_STATUS,
-                MarketDataProvider.Capability.COMPANY_PROFILE));
+                MarketDataProvider.Capability.COMPANY_PROFILE,
+                MarketDataProvider.Capability.COMPANY_NEWS));
         p.profile = new CompanyProfile("AAPL", "Apple Inc", "NASDAQ", new BigDecimal("3250000"), "Tech");
         p.status = new MarketStatus("US", true, "regular", null);
         return p;
@@ -357,5 +370,50 @@ class MarketDataServiceTest {
         MarketDataService service = service(primary, secondary());
 
         assertThat(service.getSnapshot(null).symbol()).isEmpty();
+    }
+
+    // ------------------------------------------------------------------------------ company news
+
+    @Test
+    @DisplayName("news routes to the provider that offers COMPANY_NEWS, over the requested lookback")
+    void recentNewsUsesTheNewsCapableProvider() {
+        FakeProvider primary = primary();
+        FakeProvider secondary = secondary();
+        secondary.news = List.of(new NewsItem("AAPL", "Something happened", "summary",
+                "Reuters", "https://example.com/1", "company", Instant.ofEpochSecond(1700086400L)));
+        MarketDataService service = service(primary, secondary);
+
+        List<NewsItem> news = service.getRecentNews("AAPL", 7);
+
+        assertThat(news).singleElement()
+                .satisfies(n -> assertThat(n.headline()).isEqualTo("Something happened"));
+        assertThat(secondary.newsTo).isEqualTo(LocalDate.now());
+        assertThat(secondary.newsFrom).isEqualTo(LocalDate.now().minusDays(7));
+    }
+
+    @Test
+    @DisplayName("no news-capable provider is a clear configuration error, not a silent empty list")
+    void newsWithoutACapableProviderFails() {
+        MarketDataService service = service(primary());
+
+        assertThatThrownBy(() -> service.getRecentNews("AAPL", 7))
+                .isInstanceOf(ProviderUnavailableException.class)
+                .hasMessageContaining("COMPANY_NEWS");
+    }
+
+    @Test
+    @DisplayName("news never influences the snapshot — it is context for the human only")
+    void snapshotIgnoresNews() {
+        FakeProvider primary = primary();
+        FakeProvider secondary = secondary();
+        secondary.news = List.of(new NewsItem("AAPL", "Scary headline", "s", "AP",
+                "https://example.com/x", "company", Instant.now()));
+        MarketDataService service = service(primary, secondary);
+
+        MarketSnapshot snapshot = service.getSnapshot("AAPL");
+
+        assertThat(snapshot.warnings()).isEmpty();
+        assertThat(snapshot.inUptrend()).isTrue();
+        assertThat(secondary.newsFrom).isNull();   // the snapshot never asked for news
     }
 }

@@ -4,6 +4,7 @@ import com.swingscope.domain.marketdata.Candles;
 import com.swingscope.domain.marketdata.CompanyProfile;
 import com.swingscope.domain.marketdata.EarningsEvent;
 import com.swingscope.domain.marketdata.MarketStatus;
+import com.swingscope.domain.marketdata.NewsItem;
 import com.swingscope.domain.marketdata.Quote;
 import com.swingscope.domain.marketdata.SymbolMatch;
 
@@ -27,7 +28,8 @@ public interface MarketDataProvider {
         SYMBOL_SEARCH,
         EARNINGS,
         MARKET_STATUS,
-        COMPANY_PROFILE
+        COMPANY_PROFILE,
+        COMPANY_NEWS
     }
 
     /** Short name used in logs and error messages, e.g. {@code twelvedata}. */
@@ -67,6 +69,11 @@ public interface MarketDataProvider {
 
     default CompanyProfile getCompanyProfile(String symbol) {
         throw unsupported(Capability.COMPANY_PROFILE);
+    }
+
+    /** Recent stories for a symbol. Context for the human (and Phase 5's AI summary), never a signal. */
+    default List<NewsItem> getCompanyNews(String symbol, LocalDate from, LocalDate to) {
+        throw unsupported(Capability.COMPANY_NEWS);
     }
 
     private ProviderUnavailableException unsupported(Capability capability) {

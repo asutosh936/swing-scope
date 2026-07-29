@@ -31,12 +31,13 @@ class MarketDataPropertiesTest {
                 null,
                 new MarketDataProperties.Ttl(Duration.ofMinutes(1), Duration.ofHours(2),
                         Duration.ofHours(3), Duration.ofHours(4), Duration.ofHours(5),
-                        Duration.ofHours(6)));
+                        Duration.ofHours(6), Duration.ofHours(7)));
 
         assertThat(properties.twelvedata().retries()).isEqualTo(5);
         assertThat(properties.twelvedata().retryBackoff()).isEqualTo(Duration.ofSeconds(2));
         assertThat(properties.ttl().quote()).isEqualTo(Duration.ofMinutes(1));
-        assertThat(properties.ttl().marketStatus()).isEqualTo(Duration.ofHours(6));
+        assertThat(properties.ttl().news()).isEqualTo(Duration.ofHours(6));
+        assertThat(properties.ttl().marketStatus()).isEqualTo(Duration.ofHours(7));
     }
 
     @Test

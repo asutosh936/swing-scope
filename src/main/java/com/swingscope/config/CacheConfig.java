@@ -28,6 +28,7 @@ public class CacheConfig {
     static final String EARNINGS = "earnings";
     static final String PROFILE = "profile";
     static final String SEARCH = "search";
+    static final String NEWS = "news";
     static final String MARKET_STATUS = "marketStatus";
 
     @Bean
@@ -40,15 +41,16 @@ public class CacheConfig {
                 cache(EARNINGS, ttl.earnings(), 500),
                 cache(PROFILE, ttl.profile(), 500),
                 cache(SEARCH, ttl.search(), 200),
+                cache(NEWS, ttl.news(), 200),
                 cache(MARKET_STATUS, ttl.marketStatus(), 1)));
         // SimpleCacheManager only publishes its caches once initialised; Spring would call this
         // via InitializingBean, but doing it here keeps the bean usable outside a container too.
         manager.initializeCaches();
 
         log.info("Market data caches configured — quotes={}, candles={}, earnings={}, profile={}, "
-                        + "search={}, marketStatus={}",
+                        + "search={}, news={}, marketStatus={}",
                 ttl.quote(), ttl.candles(), ttl.earnings(), ttl.profile(), ttl.search(),
-                ttl.marketStatus());
+                ttl.news(), ttl.marketStatus());
         return manager;
     }
 

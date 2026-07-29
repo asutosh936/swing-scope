@@ -4,6 +4,7 @@ import com.swingscope.config.MarketDataProperties;
 import com.swingscope.domain.marketdata.CompanyProfile;
 import com.swingscope.domain.marketdata.EarningsEvent;
 import com.swingscope.domain.marketdata.MarketStatus;
+import com.swingscope.domain.marketdata.NewsItem;
 import com.swingscope.service.marketdata.AbstractRestProvider;
 import com.swingscope.service.marketdata.MarketDataException;
 import org.slf4j.Logger;
@@ -11,6 +12,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.Comparator;
@@ -31,8 +33,9 @@ public class FinnhubClient extends AbstractRestProvider {
     private static final Logger log = LoggerFactory.getLogger(FinnhubClient.class);
 
     private static final String NAME = "finnhub";
-    private static final Set<Capability> CAPABILITIES =
-            Set.of(Capability.EARNINGS, Capability.MARKET_STATUS, Capability.COMPANY_PROFILE);
+    private static final Set<Capability> CAPABILITIES = Set.of(
+            Capability.EARNINGS, Capability.MARKET_STATUS, Capability.COMPANY_PROFILE,
+            Capability.COMPANY_NEWS);
 
     public FinnhubClient(RestClient.Builder builder, MarketDataProperties properties) {
         super(builder, properties.finnhub());
@@ -138,6 +141,44 @@ public class FinnhubClient extends AbstractRestProvider {
             log.debug("Profile {}: marketCap={}M industry={}",
                     profile.symbol(), profile.marketCap(), profile.industry());
             return profile;
+        });
+    }
+
+    @Override
+    public List<NewsItem> getCompanyNews(String symbol, LocalDate from, LocalDate to) {
+        return execute("news %s %s..%s".formatted(symbol, from, to), () -> {
+            FinnhubDtos.NewsResponse[] body = http.get()
+                    .uri(uri -> uri.path("/company-news")
+                            .queryParam("symbol", symbol)
+                            .queryParam("from", from)
+                            .queryParam("to", to)
+                            .queryParam("token", config.apiKey())
+                            .build())
+                    .exchange((request, response) -> {
+                        if (response.getStatusCode().isError()) {
+                            throw fromStatus(response.getStatusCode(), "news " + symbol, symbol);
+                        }
+                        return response.bodyTo(FinnhubDtos.NewsResponse[].class);
+                    });
+
+            if (body == null || body.length == 0) {
+                log.debug("No news for {} between {} and {}", symbol, from, to);
+                return List.<NewsItem>of();
+            }
+
+            List<NewsItem> items = java.util.Arrays.stream(body)
+                    .map(n -> new NewsItem(
+                            n.related() == null || n.related().isBlank() ? symbol : n.related(),
+                            n.headline(), n.summary(), n.source(), n.url(), n.category(),
+                            n.datetime() == null ? null : Instant.ofEpochSecond(n.datetime())))
+                    // Newest first: the most recent story is the one that explains today's move.
+                    .sorted(Comparator.comparing(NewsItem::publishedAt,
+                            Comparator.nullsLast(Comparator.reverseOrder())))
+                    .toList();
+
+            log.debug("News {}: {} story(ies), latest {}", symbol, items.size(),
+                    items.isEmpty() ? "none" : items.get(0).publishedAt());
+            return items;
         });
     }
 

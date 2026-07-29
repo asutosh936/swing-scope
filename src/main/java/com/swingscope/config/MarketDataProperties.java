@@ -26,7 +26,7 @@ public record MarketDataProperties(
             finnhub = new Provider(null, null, true, 0, null);
         }
         if (ttl == null) {
-            ttl = new Ttl(null, null, null, null, null, null);
+            ttl = new Ttl(null, null, null, null, null, null, null);
         }
     }
 
@@ -64,6 +64,7 @@ public record MarketDataProperties(
             Duration earnings,
             Duration profile,
             Duration search,
+            Duration news,
             Duration marketStatus
     ) {
         public Ttl {
@@ -81,6 +82,9 @@ public record MarketDataProperties(
             }
             if (search == null) {
                 search = Duration.ofDays(1);        // ticker listings are effectively static
+            }
+            if (news == null) {
+                news = Duration.ofHours(1);         // fresh enough to explain today's move
             }
             if (marketStatus == null) {
                 marketStatus = Duration.ofMinutes(10);

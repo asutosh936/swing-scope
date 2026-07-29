@@ -74,7 +74,8 @@ class MarketDataProviderTest {
                 MarketDataProvider.Capability.SYMBOL_SEARCH,
                 MarketDataProvider.Capability.EARNINGS,
                 MarketDataProvider.Capability.MARKET_STATUS,
-                MarketDataProvider.Capability.COMPANY_PROFILE);
+                MarketDataProvider.Capability.COMPANY_PROFILE,
+                MarketDataProvider.Capability.COMPANY_NEWS);
         assertThat(MarketDataProvider.Capability.valueOf("QUOTE"))
                 .isEqualTo(MarketDataProvider.Capability.QUOTE);
     }

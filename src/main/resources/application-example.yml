@@ -38,6 +38,7 @@ marketdata:
     earnings: 12h
     profile: 24h
     search: 24h
+    news: 1h
     market-status: 10m
 
 logging:

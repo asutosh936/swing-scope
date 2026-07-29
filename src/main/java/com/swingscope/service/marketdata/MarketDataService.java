@@ -5,6 +5,7 @@ import com.swingscope.domain.marketdata.CompanyProfile;
 import com.swingscope.domain.marketdata.EarningsEvent;
 import com.swingscope.domain.marketdata.MarketSnapshot;
 import com.swingscope.domain.marketdata.MarketStatus;
+import com.swingscope.domain.marketdata.NewsItem;
 import com.swingscope.domain.marketdata.Quote;
 import com.swingscope.domain.marketdata.SymbolMatch;
 import org.slf4j.Logger;
@@ -82,6 +83,17 @@ public class MarketDataService {
     @Cacheable(cacheNames = "profile", key = "#symbol")
     public CompanyProfile getCompanyProfile(String symbol) {
         return provider(MarketDataProvider.Capability.COMPANY_PROFILE).getCompanyProfile(symbol);
+    }
+
+    /**
+     * Recent stories, newest first — context for the human and the input to Phase 5's AI summary.
+     * Never consulted by any filter or sizing rule.
+     */
+    @Cacheable(cacheNames = "news", key = "#symbol + ':' + #lookbackDays")
+    public List<NewsItem> getRecentNews(String symbol, int lookbackDays) {
+        LocalDate today = LocalDate.now();
+        return provider(MarketDataProvider.Capability.COMPANY_NEWS)
+                .getCompanyNews(symbol, today.minusDays(lookbackDays), today);
     }
 
     @Cacheable(cacheNames = "marketStatus")

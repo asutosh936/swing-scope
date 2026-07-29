@@ -4,6 +4,7 @@ import com.swingscope.config.MarketDataProperties;
 import com.swingscope.domain.marketdata.CompanyProfile;
 import com.swingscope.domain.marketdata.EarningsEvent;
 import com.swingscope.domain.marketdata.MarketStatus;
+import com.swingscope.domain.marketdata.NewsItem;
 import com.swingscope.service.marketdata.MarketDataException;
 import com.swingscope.service.marketdata.MarketDataProvider;
 import com.swingscope.service.marketdata.ProviderUnavailableException;
@@ -19,6 +20,7 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 
@@ -57,7 +59,8 @@ class FinnhubClientTest {
         assertThat(client.capabilities()).containsExactlyInAnyOrder(
                 MarketDataProvider.Capability.EARNINGS,
                 MarketDataProvider.Capability.MARKET_STATUS,
-                MarketDataProvider.Capability.COMPANY_PROFILE);
+                MarketDataProvider.Capability.COMPANY_PROFILE,
+                MarketDataProvider.Capability.COMPANY_NEWS);
         assertThat(client.supports(MarketDataProvider.Capability.DAILY_CANDLES)).isFalse();
 
         assertThatThrownBy(() -> client.getDailyCandles("AAPL", 250))
@@ -274,5 +277,93 @@ class FinnhubClientTest {
         assertThatThrownBy(client::getMarketStatus)
                 .isInstanceOf(MarketDataException.class)
                 .hasMessageContaining("empty market-status response");
+    }
+
+    // ---------------------------------------------------------------------------- company news
+
+    @Test
+    @DisplayName("news comes back newest-first with epoch seconds turned into instants")
+    void companyNewsIsSortedNewestFirst() {
+        // The endpoint returns a bare JSON array, not an object wrapper.
+        String json = """
+                [
+                  {"category":"company","datetime":1700000000,"headline":"Older story",
+                   "id":1,"related":"AAPL","source":"Reuters","summary":"older summary",
+                   "url":"https://example.com/1"},
+                  {"category":"company","datetime":1700086400,"headline":"Newer story",
+                   "id":2,"related":"AAPL","source":"CNBC","summary":"newer summary",
+                   "url":"https://example.com/2"}
+                ]
+                """;
+        server.expect(requestTo(org.hamcrest.Matchers.startsWith(BASE + "/company-news")))
+                .andExpect(queryParam("symbol", "AAPL"))
+                .andExpect(queryParam("token", "test-token"))
+                .andRespond(withSuccess(json, MediaType.APPLICATION_JSON));
+
+        List<NewsItem> news = client.getCompanyNews("AAPL",
+                LocalDate.of(2026, 7, 22), LocalDate.of(2026, 7, 29));
+
+        assertThat(news).hasSize(2);
+        assertThat(news.get(0).headline()).isEqualTo("Newer story");
+        assertThat(news.get(0).publishedAt()).isEqualTo(Instant.ofEpochSecond(1700086400L));
+        assertThat(news.get(0).source()).isEqualTo("CNBC");
+        assertThat(news.get(0).symbol()).isEqualTo("AAPL");
+        assertThat(news.get(1).headline()).isEqualTo("Older story");
+        assertThat(news.get(1).url()).isEqualTo("https://example.com/1");
+    }
+
+    @Test
+    void anEmptyNewsArrayIsNotAnError() {
+        server.expect(requestTo(org.hamcrest.Matchers.startsWith(BASE + "/company-news")))
+                .andRespond(withSuccess("[]", MediaType.APPLICATION_JSON));
+
+        assertThat(client.getCompanyNews("AAPL", LocalDate.now().minusDays(7), LocalDate.now()))
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("a story with no 'related' field falls back to the requested symbol")
+    void newsWithoutRelatedFallsBackToTheSymbol() {
+        String json = """
+                [{"category":"company","datetime":1700000000,"headline":"No related field",
+                  "id":1,"source":"AP","summary":"s","url":"https://example.com/x"}]
+                """;
+        server.expect(requestTo(org.hamcrest.Matchers.startsWith(BASE + "/company-news")))
+                .andRespond(withSuccess(json, MediaType.APPLICATION_JSON));
+
+        List<NewsItem> news = client.getCompanyNews("MSFT", LocalDate.now().minusDays(7), LocalDate.now());
+
+        assertThat(news).singleElement()
+                .satisfies(n -> assertThat(n.symbol()).isEqualTo("MSFT"));
+    }
+
+    @Test
+    @DisplayName("a story with a null datetime sorts last instead of blowing up")
+    void newsWithoutATimestampSortsLast() {
+        String json = """
+                [{"category":"company","headline":"Undated","id":1,"related":"AAPL",
+                  "source":"AP","summary":"s","url":"https://example.com/x"},
+                 {"category":"company","datetime":1700000000,"headline":"Dated","id":2,
+                  "related":"AAPL","source":"AP","summary":"s","url":"https://example.com/y"}]
+                """;
+        server.expect(requestTo(org.hamcrest.Matchers.startsWith(BASE + "/company-news")))
+                .andRespond(withSuccess(json, MediaType.APPLICATION_JSON));
+
+        List<NewsItem> news = client.getCompanyNews("AAPL", LocalDate.now().minusDays(7), LocalDate.now());
+
+        assertThat(news).hasSize(2);
+        assertThat(news.get(0).headline()).isEqualTo("Dated");
+        assertThat(news.get(1).publishedAt()).isNull();
+    }
+
+    @Test
+    void newsRateLimitSurfacesAsRateLimited() {
+        server.expect(ExpectedCount.times(3),
+                        requestTo(org.hamcrest.Matchers.startsWith(BASE + "/company-news")))
+                .andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS));
+
+        assertThatThrownBy(() -> client.getCompanyNews("AAPL",
+                LocalDate.now().minusDays(7), LocalDate.now()))
+                .isInstanceOf(RateLimitedException.class);
     }
 }

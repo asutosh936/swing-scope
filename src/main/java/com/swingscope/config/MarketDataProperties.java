@@ -20,10 +20,10 @@ public record MarketDataProperties(
 
     public MarketDataProperties {
         if (twelvedata == null) {
-            twelvedata = new Provider(null, null, true, 0, null);
+            twelvedata = new Provider(null, null, true, 0, null, 0);
         }
         if (finnhub == null) {
-            finnhub = new Provider(null, null, true, 0, null);
+            finnhub = new Provider(null, null, true, 0, null, 0);
         }
         if (ttl == null) {
             ttl = new Ttl(null, null, null, null, null, null, null);
@@ -34,13 +34,16 @@ public record MarketDataProperties(
      * @param apiKey       from an env var; blank disables the provider at startup
      * @param retries      how many times to retry a 429 before giving up
      * @param retryBackoff base delay between 429 retries; doubles each attempt
+     * @param requestsPerMinute outbound calls are paced to this; 0 or less disables pacing.
+     *                          Twelve Data's free tier allows 8/min, Finnhub's 60/min.
      */
     public record Provider(
             String baseUrl,
             String apiKey,
             boolean enabled,
             int retries,
-            Duration retryBackoff
+            Duration retryBackoff,
+            int requestsPerMinute
     ) {
         public Provider {
             if (retries <= 0) {

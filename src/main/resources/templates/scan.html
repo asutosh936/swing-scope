@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('scan')}"></head>
+<body>
+
+<header th:replace="~{fragments/layout :: masthead}"></header>
+
+<main class="wrap">
+
+    <div class="flash" th:if="${flash}" th:text="${flash}"></div>
+    <div class="flash flash-error" th:if="${error}" th:text="${error}"></div>
+
+    <section class="card">
+        <h1>Scan a ticker list</h1>
+        <p class="lede">
+            Run your screener elsewhere, paste the tickers here. This fetches the data, applies the
+            trend, liquidity, big-mover and earnings filters, and sorts what survives into tiers.
+            It tells you <em>what's worth charting</em> — never what to buy.
+        </p>
+
+        <form th:action="@{/scan}" method="post">
+            <label class="full">
+                <span>Tickers <small>(commas, spaces or newlines — all fine)</small></span>
+                <textarea name="tickers" rows="3" placeholder="VZ, CARR, AAPL MSFT&#10;NVDA"
+                          th:text="${pasted}"></textarea>
+            </label>
+            <button type="submit">Scan list</button>
+        </form>
+
+        <form th:action="@{/scan/watchlist}" method="post" class="inline-form">
+            <button type="submit" class="secondary">Scan my watchlist</button>
+            <span class="muted" th:text="|${#lists.size(watchlist)} saved ticker(s)|">0 saved</span>
+        </form>
+
+        <p class="pacing-note">
+            A cold scan is paced to the provider's free-tier limit (8 calls/minute), so a 20-name
+            list can take a few minutes the first time. Repeat scans come from cache and are instant.
+        </p>
+    </section>
+
+    <!-- results -->
+    <th:block th:if="${result != null}">
+
+        <section class="card">
+            <div class="section-head">
+                <h2>Results</h2>
+                <span class="muted" th:text="|${result.requested} scanned in ${result.elapsedMillis} ms|">
+                    5 scanned</span>
+            </div>
+
+            <div class="scorecard">
+                <div class="stat">
+                    <span class="stat-label">Tier 1</span>
+                    <strong th:text="${result.count(T(com.swingscope.domain.scan.Tier).TIER1)}">0</strong>
+                    <small>chart these first</small>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Tier 2</span>
+                    <strong th:text="${result.count(T(com.swingscope.domain.scan.Tier).TIER2)}">0</strong>
+                    <small>mind the fill</small>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Tier 3</span>
+                    <strong th:text="${result.count(T(com.swingscope.domain.scan.Tier).TIER3)}">0</strong>
+                    <small>event risk</small>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Skipped</span>
+                    <strong th:text="${result.count(T(com.swingscope.domain.scan.Tier).SKIP)}">0</strong>
+                    <small>no uptrend</small>
+                </div>
+            </div>
+
+            <ul class="warnings" th:if="${!#lists.isEmpty(result.warnings)}">
+                <li th:each="w : ${result.warnings}" th:text="${w}"></li>
+            </ul>
+        </section>
+
+        <section class="card" th:each="group : ${result.byTier}">
+            <div class="section-head">
+                <h3 th:text="${group.key.label}">Tier 1</h3>
+                <span class="muted" th:text="${group.key.description}">Trend intact</span>
+            </div>
+
+            <p class="tier-hint" th:if="${group.key.tradeable}">
+                <strong>Plan this trade</strong> opens the calculator with the ticker and entry
+                already filled in from the current price — you add the stop and target you read off
+                the chart.
+            </p>
+
+            <table class="journal-table">
+                <thead>
+                <tr>
+                    <th>Ticker</th>
+                    <th class="num">Price</th>
+                    <th class="num">Chg%</th>
+                    <th class="num">vs 50-EMA</th>
+                    <th class="num">Avg vol</th>
+                    <th class="num">Cap</th>
+                    <th>Earnings</th>
+                    <th>Why</th>
+                    <th>Action</th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr th:each="s : ${group.value}">
+                    <td><strong th:text="${s.symbol}">VZ</strong></td>
+                    <td class="num"
+                        th:text="${s.price != null} ? ${'$' + #numbers.formatDecimal(s.price, 1, 'COMMA', 2, 'POINT')} : '—'">$40.00</td>
+                    <td class="num" th:if="${s.changePercent != null}"
+                        th:class="${s.changePercent.signum() >= 0} ? 'num pnl-up' : 'num pnl-down'"
+                        th:text="${s.changePercent} + '%'">1.2%</td>
+                    <td class="num muted" th:if="${s.changePercent == null}">—</td>
+                    <td class="num" th:text="${s.distanceToEma50Percent != null} ? ${s.distanceToEma50Percent} + '%' : '—'">+3.1%</td>
+                    <td class="num"
+                        th:text="${s.averageVolume != null} ? ${#numbers.formatInteger(s.averageVolume, 0, 'COMMA')} : (${s.volume != null} ? ${#numbers.formatInteger(s.volume, 0, 'COMMA')} : '—')">1,200,000</td>
+                    <td class="num" th:text="${s.marketCapBillions() != null} ? ${'$' + s.marketCapBillions() + 'B'} : '—'">$12B</td>
+                    <td th:text="${s.nextEarningsDate != null} ? ${s.nextEarningsDate} : '—'">—</td>
+                    <td class="muted" th:text="${s.reason}">trend intact</td>
+                    <td>
+                        <a th:if="${s.tier.tradeable}" class="button-link small"
+                           th:href="@{/plan(ticker=${s.symbol}, entry=${s.price})}"
+                           th:title="|Size a trade on ${s.symbol}: opens the calculator with entry pre-filled at ${s.price}|">
+                            Plan this trade →</a>
+                        <span th:unless="${s.tier.tradeable}" class="muted">—</span>
+                    </td>
+                </tr>
+                </tbody>
+            </table>
+        </section>
+    </th:block>
+
+    <!-- watchlist -->
+    <section class="card">
+        <div class="section-head">
+            <h2>Watchlist</h2>
+            <span class="muted">Names you track every session</span>
+        </div>
+
+        <p class="empty" th:if="${#lists.isEmpty(watchlist)}">
+            Nothing saved yet. Add the names you keep coming back to.
+        </p>
+
+        <table class="journal-table" th:unless="${#lists.isEmpty(watchlist)}">
+            <thead>
+            <tr><th>Ticker</th><th>Note</th><th>Added</th><th></th></tr>
+            </thead>
+            <tbody>
+            <tr th:each="w : ${watchlist}">
+                <td><strong th:text="${w.ticker}">VZ</strong></td>
+                <td class="muted" th:text="${w.note != null} ? ${w.note} : '—'">—</td>
+                <td th:text="${w.dateAdded}">2026-07-29</td>
+                <td>
+                    <form th:action="@{/watchlist/{id}/delete(id=${w.id})}" method="post">
+                        <button type="submit" class="link-button">Remove</button>
+                    </form>
+                </td>
+            </tr>
+            </tbody>
+        </table>
+
+        <form th:action="@{/watchlist}" method="post" class="inline-form">
+            <label>
+                <span>Add ticker</span>
+                <input type="text" name="ticker" placeholder="VZ" required autocomplete="off">
+            </label>
+            <label>
+                <span>Note <small>(optional)</small></span>
+                <input type="text" name="note" placeholder="dividend payer, slow mover">
+            </label>
+            <button type="submit" class="secondary">Add</button>
+        </form>
+    </section>
+
+</main>
+
+<footer th:replace="~{fragments/layout :: disclaimer}"></footer>
+
+</body>
+</html>

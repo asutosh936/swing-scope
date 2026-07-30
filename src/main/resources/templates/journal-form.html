@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('log a trade')}"></head>
+<body>
+
+<header th:replace="~{fragments/layout :: masthead}"></header>
+
+<main class="wrap">
+
+    <section class="card">
+        <h1 th:text="${editing} ? 'Edit trade' : 'Log a trade'">Log a trade</h1>
+        <p class="lede">
+            Journal the trade <em>when you plan it</em>. Entry, stop and target come from your chart
+            reading; the calculator works out the ratio and share count.
+        </p>
+
+        <form th:action="${editing} ? @{/journal/{id}(id=${entryId})} : @{/journal}"
+              th:object="${form}" method="post" novalidate>
+
+            <div class="grid">
+                <label>
+                    <span>Ticker</span>
+                    <input type="text" th:field="*{ticker}" placeholder="VZ" autocomplete="off"
+                           th:classappend="${#fields.hasErrors('ticker')} ? 'invalid'">
+                    <em class="field-error" th:if="${#fields.hasErrors('ticker')}" th:errors="*{ticker}"></em>
+                </label>
+
+                <label>
+                    <span>Setup</span>
+                    <select th:field="*{setupType}">
+                        <option th:each="type : ${setupTypes}" th:value="${type}"
+                                th:text="${type.label}">Breakout</option>
+                    </select>
+                </label>
+
+                <label>
+                    <span>Entry</span>
+                    <input type="number" step="0.01" min="0" th:field="*{entry}"
+                           th:classappend="${#fields.hasErrors('entry')} ? 'invalid'">
+                    <em class="field-error" th:if="${#fields.hasErrors('entry')}" th:errors="*{entry}"></em>
+                </label>
+
+                <label>
+                    <span>Stop</span>
+                    <input type="number" step="0.01" min="0" th:field="*{stop}"
+                           th:classappend="${#fields.hasErrors('stop')} ? 'invalid'">
+                    <em class="field-error" th:if="${#fields.hasErrors('stop')}" th:errors="*{stop}"></em>
+                </label>
+
+                <label>
+                    <span>Target</span>
+                    <input type="number" step="0.01" min="0" th:field="*{target}"
+                           th:classappend="${#fields.hasErrors('target')} ? 'invalid'">
+                    <em class="field-error" th:if="${#fields.hasErrors('target')}" th:errors="*{target}"></em>
+                </label>
+
+                <label>
+                    <span>Reward : risk</span>
+                    <input type="number" step="0.01" min="0" th:field="*{ratio}" placeholder="3.60">
+                </label>
+
+                <label>
+                    <span>Shares</span>
+                    <input type="number" step="1" min="0" th:field="*{shares}"
+                           th:classappend="${#fields.hasErrors('shares')} ? 'invalid'">
+                    <em class="field-error" th:if="${#fields.hasErrors('shares')}" th:errors="*{shares}"></em>
+                </label>
+
+                <label>
+                    <span>Risk $</span>
+                    <input type="number" step="0.01" min="0" th:field="*{riskAmount}" placeholder="5.00">
+                </label>
+            </div>
+
+            <label class="full">
+                <span>Lesson <small>(optional until you close it)</small></span>
+                <input type="text" th:field="*{lessonText}" maxlength="500"
+                       placeholder="Filled in when the trade closes">
+            </label>
+
+            <button type="submit" th:text="${editing} ? 'Save changes' : 'Log trade'">Log trade</button>
+            <a class="button-link secondary" th:href="@{/journal}">Cancel</a>
+        </form>
+    </section>
+
+</main>
+
+<footer th:replace="~{fragments/layout :: disclaimer}"></footer>
+
+</body>
+</html>

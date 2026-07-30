@@ -13,7 +13,7 @@ class MarketSnapshotTest {
 
     private static MarketSnapshot withWarnings(List<String> warnings) {
         return new MarketSnapshot("AAPL", new BigDecimal("214.25"), new BigDecimal("3.00"),
-                null, null, null, 1L, null, null, null, false, false, 0, warnings);
+                null, null, null, 1L, 1L, null, null, null, false, false, 0, warnings);
     }
 
     @Test

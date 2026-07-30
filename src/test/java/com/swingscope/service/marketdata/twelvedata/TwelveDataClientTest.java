@@ -47,7 +47,7 @@ class TwelveDataClientTest {
     private static MarketDataProperties properties(String apiKey) {
         // Zero backoff so the retry tests don't actually sleep.
         return new MarketDataProperties(
-                new MarketDataProperties.Provider(BASE, apiKey, true, 2, Duration.ZERO),
+                new MarketDataProperties.Provider(BASE, apiKey, true, 2, Duration.ZERO, 0),
                 null, null);
     }
 
@@ -359,7 +359,7 @@ class TwelveDataClientTest {
     void transportFailureIsWrapped() {
         RestClient.Builder builder = RestClient.builder();
         MarketDataProperties unreachable = new MarketDataProperties(
-                new MarketDataProperties.Provider("http://localhost:1", "key", true, 0, Duration.ZERO),
+                new MarketDataProperties.Provider("http://localhost:1", "key", true, 0, Duration.ZERO, 0),
                 null, null);
         TwelveDataClient client = new TwelveDataClient(builder, unreachable);
 

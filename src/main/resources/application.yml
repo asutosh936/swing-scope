@@ -2,6 +2,25 @@ spring:
   application:
     name: swing-scope
 
+  datasource:
+    url: jdbc:h2:file:./data/swing-scope;AUTO_SERVER=TRUE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+  # SQL console for inspecting the journal by hand: /swing-scope/h2-console
+  # JDBC URL to paste there: jdbc:h2:file:./data/swing-scope   user: sa   (no password)
+  # Bound to localhost only. Set enabled:false if this app is ever exposed to a network.
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+      settings:
+        web-allow-others: false
+
 server:
   port: 8080
   servlet:
@@ -21,6 +40,7 @@ marketdata:
     enabled: true
     retries: 2
     retry-backoff: 500ms
+    requests-per-minute: 8      # free-tier ceiling; scans are paced to it
   # Secondary: earnings, market status, market cap. Never candles — those are premium-only now.
   finnhub:
     base-url: https://finnhub.io/api/v1
@@ -28,6 +48,7 @@ marketdata:
     enabled: true
     retries: 2
     retry-backoff: 500ms
+    requests-per-minute: 60
   # Sized against Twelve Data's 800-calls-per-day free tier.
   ttl:
     quote: 5m
@@ -46,3 +67,10 @@ logging:
     console: "%d{HH:mm:ss.SSS} %-5level [%X{requestId:-        }] %logger{36} - %msg%n"
   file:
     name: logs/swing-scope.log
+
+# Tier 1 needs BOTH: liquid enough to fill, big enough to be established.
+# NOTE: market cap is in MILLIONS, matching what Finnhub reports. 2000 = $2B.
+scan:
+  tier1-min-volume: 1000000
+  tier1-min-market-cap-millions: 2000
+  max-tickers-per-scan: 30

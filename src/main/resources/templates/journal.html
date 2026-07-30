@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('journal')}"></head>
+<body>
+
+<header th:replace="~{fragments/layout :: masthead}"></header>
+
+<main class="wrap">
+
+    <div class="flash" th:if="${flash}" th:text="${flash}"></div>
+
+    <section class="card">
+        <div class="section-head">
+            <h1>Journal</h1>
+            <a class="button-link" th:href="@{/journal/new}">Log a trade</a>
+        </div>
+
+        <div class="scorecard">
+            <div class="stat">
+                <span class="stat-label">Closed trades</span>
+                <strong th:text="${stats.closedCount}">0</strong>
+                <small th:text="|${stats.wins}W / ${stats.losses}L|">0W / 0L</small>
+            </div>
+            <div class="stat">
+                <span class="stat-label">Win rate</span>
+                <strong th:text="${stats.winRate} + '%'">0%</strong>
+            </div>
+            <div class="stat">
+                <span class="stat-label">Net P&amp;L</span>
+                <strong th:class="${stats.netPnl.signum() >= 0} ? 'pnl-up' : 'pnl-down'"
+                        th:text="${'$' + stats.netPnl}">$0.00</strong>
+            </div>
+            <div class="stat">
+                <span class="stat-label">Expectancy</span>
+                <strong th:class="${stats.expectancy.signum() >= 0} ? 'pnl-up' : 'pnl-down'"
+                        th:text="${'$' + stats.expectancy}">$0.00</strong>
+                <small>per closed trade</small>
+            </div>
+        </div>
+
+        <!-- 5.7 graduation tracker -->
+        <div class="graduation">
+            <div class="graduation-head">
+                <h3>Graduation to real money</h3>
+                <span th:text="|${stats.closedCount} / ${stats.graduationTarget} closed trades|">0 / 25</span>
+            </div>
+            <div class="bar">
+                <div class="bar-fill" th:classappend="${stats.graduationMet} ? 'bar-met'"
+                     th:style="'width:' + ${stats.graduationPercent} + '%'"></div>
+            </div>
+            <ul class="gates">
+                <li th:classappend="${stats.closedCount >= stats.graduationTarget} ? 'gate-met'"
+                    th:text="|${stats.graduationTarget} closed trades|">25 closed trades</li>
+                <li th:classappend="${stats.netPnl.signum() > 0} ? 'gate-met'">Positive net total</li>
+                <li th:classappend="${stats.losses == stats.losersWithRulesFollowed} ? 'gate-met'"
+                    th:text="|Rules followed on every loser (${stats.losersWithRulesFollowed}/${stats.losses})|">
+                    Rules followed on every loser</li>
+            </ul>
+            <p class="graduation-note" th:if="${!stats.graduationMet}">
+                Not a recommendation either way — this only tracks whether the record meets the bar
+                you set for yourself. Paper trading until then.
+            </p>
+        </div>
+    </section>
+
+    <section class="card">
+        <p class="empty" th:if="${#lists.isEmpty(entries)}">
+            No trades logged yet. Size one in the <a th:href="@{/}">calculator</a>, then journal it
+            <em>when you plan it</em> — not after it closes.
+        </p>
+
+        <table class="journal-table" th:unless="${#lists.isEmpty(entries)}">
+            <thead>
+            <tr>
+                <th>#</th>
+                <th>Ticker</th>
+                <th>Setup</th>
+                <th>Status</th>
+                <th>Planned</th>
+                <th class="num">Shares</th>
+                <th class="num">P&amp;L</th>
+                <th>Rules</th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:each="e : ${entries}">
+                <td><a th:href="@{/journal/{id}(id=${e.id})}" th:text="${e.id}">1</a></td>
+                <td><a th:href="@{/journal/{id}(id=${e.id})}" th:text="${e.ticker}">VZ</a></td>
+                <td th:text="${e.setupType.label}">Breakout</td>
+                <td>
+                    <span class="pill" th:classappend="'pill-' + ${e.status.name().toLowerCase()}"
+                          th:text="${e.status.label}">Planned</span>
+                </td>
+                <td th:text="${e.datePlanned}">2026-07-29</td>
+                <td class="num" th:text="${e.shares}">5</td>
+                <td class="num" th:if="${e.realizedPnl != null}"
+                    th:class="${e.realizedPnl.signum() >= 0} ? 'num pnl-up' : 'num pnl-down'"
+                    th:text="${'$' + e.realizedPnl}">$18.00</td>
+                <td class="num muted" th:if="${e.realizedPnl == null}">—</td>
+                <td>
+                    <span th:if="${e.rulesFollowed == null}" class="muted">—</span>
+                    <span th:if="${e.rulesFollowed == true}" class="gate-met">✓</span>
+                    <span th:if="${e.rulesFollowed == false}" class="pnl-down">✗</span>
+                </td>
+            </tr>
+            </tbody>
+        </table>
+    </section>
+
+</main>
+
+<footer th:replace="~{fragments/layout :: disclaimer}"></footer>
+
+</body>
+</html>

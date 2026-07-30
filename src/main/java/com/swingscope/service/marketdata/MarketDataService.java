@@ -112,8 +112,18 @@ public class MarketDataService {
      * the whole request.
      */
     public MarketSnapshot getSnapshot(String rawSymbol) {
+        return getSnapshot(rawSymbol, true);
+    }
+
+    /**
+     * @param withFundamentals when false, market cap and earnings are not fetched at all. The scan
+     *                         uses this to short-circuit names that already failed the trend test —
+     *                         a stock below its 50-EMA is a SKIP whatever its earnings date, and
+     *                         skipping the lookup saves two provider calls per rejected ticker.
+     */
+    public MarketSnapshot getSnapshot(String rawSymbol, boolean withFundamentals) {
         String symbol = rawSymbol == null ? "" : rawSymbol.trim().toUpperCase();
-        log.info("Assembling snapshot for {}", symbol);
+        log.info("Assembling snapshot for {}{}", symbol, withFundamentals ? "" : " (trend only)");
         long startedAt = System.nanoTime();
 
         List<String> warnings = new ArrayList<>();
@@ -136,31 +146,36 @@ public class MarketDataService {
         Boolean inUptrend = trendTest(quote.price(), ema50, ema200);
 
         BigDecimal marketCap = null;
-        try {
-            CompanyProfile profile = getCompanyProfile(symbol);
-            marketCap = profile.marketCap();
-        } catch (MarketDataException e) {
-            warnings.add("market cap unavailable: " + e.getMessage());
-            log.warn("{}: market cap unavailable — {}", symbol, e.getMessage());
-        }
-
         LocalDate nextEarnings = null;
-        try {
-            nextEarnings = getUpcomingEarnings(symbol).stream()
-                    .map(EarningsEvent::date)
-                    .filter(d -> d != null && !d.isBefore(LocalDate.now()))
-                    .min(Comparator.naturalOrder())
-                    .orElse(null);
-        } catch (MarketDataException e) {
-            warnings.add("earnings date unavailable: " + e.getMessage());
-            log.warn("{}: earnings date unavailable — {}", symbol, e.getMessage());
+
+        if (withFundamentals) {
+            try {
+                CompanyProfile profile = getCompanyProfile(symbol);
+                marketCap = profile.marketCap();
+            } catch (MarketDataException e) {
+                warnings.add("market cap unavailable: " + e.getMessage());
+                log.warn("{}: market cap unavailable — {}", symbol, e.getMessage());
+            }
+
+            try {
+                nextEarnings = getUpcomingEarnings(symbol).stream()
+                        .map(EarningsEvent::date)
+                        .filter(d -> d != null && !d.isBefore(LocalDate.now()))
+                        .min(Comparator.naturalOrder())
+                        .orElse(null);
+            } catch (MarketDataException e) {
+                warnings.add("earnings date unavailable: " + e.getMessage());
+                log.warn("{}: earnings date unavailable — {}", symbol, e.getMessage());
+            }
+        } else {
+            log.debug("{}: skipping market cap and earnings — trend test already decided it", symbol);
         }
 
         boolean bigMover = isBigMover(quote.changePercent());
         boolean earningsSoon = isEarningsWithinBlockWindow(nextEarnings);
 
         MarketSnapshot snapshot = new MarketSnapshot(symbol, quote.price(), quote.changePercent(),
-                ema20, ema50, ema200, quote.volume(), marketCap, nextEarnings,
+                ema20, ema50, ema200, quote.volume(), quote.averageVolume(), marketCap, nextEarnings,
                 inUptrend, bigMover, earningsSoon, candles.size(), warnings);
 
         log.info("Snapshot {} assembled in {}ms: price={} change%={} ema20={} ema50={} ema200={} "

@@ -232,3 +232,331 @@ button:hover { filter: brightness(1.08); }
 }
 
 .disclaimer strong { color: var(--ink); display: block; margin-bottom: 3px; }
+
+/* ---------- journal ---------- */
+
+.section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 4px;
+}
+
+.section-head h1 { display: flex; align-items: center; gap: 12px; }
+.head-actions { display: flex; gap: 8px; }
+
+.button-link {
+    display: inline-block;
+    background: var(--accent);
+    color: #0a1220;
+    border-radius: 7px;
+    padding: 9px 18px;
+    font-size: 0.85rem;
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.button-link.secondary,
+button.secondary {
+    background: var(--panel-2);
+    color: var(--ink);
+    border: 1px solid var(--line);
+}
+
+button.danger {
+    background: transparent;
+    color: var(--fail);
+    border: 1px solid var(--fail);
+}
+
+.flash {
+    background: rgba(52, 201, 139, 0.12);
+    border: 1px solid rgba(52, 201, 139, 0.35);
+    color: var(--pass);
+    border-radius: var(--radius);
+    padding: 12px 16px;
+    margin-bottom: 20px;
+    font-size: 0.9rem;
+}
+
+.flash-error {
+    background: rgba(244, 101, 95, 0.12);
+    border-color: rgba(244, 101, 95, 0.35);
+    color: var(--fail);
+}
+
+/* scorecard */
+
+.scorecard {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 14px;
+    margin: 20px 0 26px;
+}
+
+.stat {
+    background: var(--panel-2);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.stat-label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--ink-dim);
+}
+
+.stat strong { font-size: 1.35rem; font-variant-numeric: tabular-nums; }
+.stat small { color: var(--ink-dim); font-size: 0.72rem; }
+
+.pnl-up { color: var(--pass); }
+.pnl-down { color: var(--fail); }
+.muted { color: var(--ink-dim); }
+
+/* graduation tracker */
+
+.graduation {
+    background: var(--panel-2);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+}
+
+.graduation-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.graduation-head h3 { margin: 0; }
+.graduation-head span { color: var(--ink-dim); font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+
+.bar {
+    height: 8px;
+    background: var(--line);
+    border-radius: 999px;
+    overflow: hidden;
+    margin: 12px 0 14px;
+}
+
+.bar-fill { height: 100%; background: var(--accent); border-radius: 999px; }
+.bar-fill.bar-met { background: var(--pass); }
+
+.gates {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 20px;
+    font-size: 0.83rem;
+    color: var(--ink-dim);
+}
+
+.gates li::before { content: "○ "; }
+.gates li.gate-met { color: var(--pass); }
+.gates li.gate-met::before { content: "● "; }
+.gate-met { color: var(--pass); }
+
+.graduation-note {
+    margin: 14px 0 0;
+    font-size: 0.8rem;
+    color: var(--ink-dim);
+}
+
+/* journal table */
+
+.journal-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.88rem;
+}
+
+.journal-table th,
+.journal-table td {
+    text-align: left;
+    padding: 10px 8px;
+    border-bottom: 1px solid var(--line);
+}
+
+.journal-table thead th {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-dim);
+    font-weight: 600;
+}
+
+.journal-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.journal-table a { color: var(--accent); text-decoration: none; font-weight: 600; }
+
+/* A button inside a table is still a button. Without this, the generic link colour above wins on
+   specificity and paints the label the same blue as the button's own background — invisible. */
+.journal-table a.button-link { color: #0a1220; }
+.journal-table tbody tr:hover { background: var(--panel-2); }
+
+.pill {
+    display: inline-block;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: var(--line);
+    color: var(--ink-dim);
+    white-space: nowrap;
+}
+
+.pill-planned { background: rgba(87, 166, 255, 0.16); color: var(--accent); }
+.pill-filled { background: rgba(87, 166, 255, 0.26); color: var(--accent); }
+.pill-closed_win { background: rgba(52, 201, 139, 0.16); color: var(--pass); }
+.pill-closed_loss { background: rgba(244, 101, 95, 0.16); color: var(--fail); }
+.pill-scratch,
+.pill-no_fill { background: var(--line); color: var(--ink-dim); }
+
+/* detail lifecycle */
+
+.lifecycle {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 18px;
+    margin-top: 20px;
+}
+
+.band {
+    background: var(--panel-2);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+}
+
+.band h3 { margin-bottom: 6px; }
+.band .numbers th { font-size: 0.82rem; }
+.band .numbers td { text-align: right; font-variant-numeric: tabular-nums; }
+
+.lesson {
+    margin-top: 20px;
+    padding: 16px 18px;
+    background: var(--panel-2);
+    border-left: 3px solid var(--accent);
+    border-radius: var(--radius);
+}
+
+.lesson p { margin: 0; font-size: 0.92rem; }
+
+.inline-form {
+    display: flex;
+    align-items: flex-end;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+
+.inline-form button { margin-top: 0; }
+
+label.full { margin-top: 16px; }
+
+select {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    color: var(--ink);
+    padding: 10px 12px;
+    font-size: 1rem;
+}
+
+.empty { color: var(--ink-dim); font-size: 0.9rem; margin: 0; }
+.empty a { color: var(--accent); }
+
+.nav { display: flex; gap: 16px; margin-left: auto; }
+.nav a { color: var(--ink-dim); text-decoration: none; font-size: 0.85rem; font-weight: 600; }
+.nav a:hover { color: var(--ink); }
+
+/* ---------- scan ---------- */
+
+textarea {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    color: var(--ink);
+    padding: 10px 12px;
+    font-size: 0.95rem;
+    font-family: inherit;
+    resize: vertical;
+}
+
+textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(87, 166, 255, 0.18);
+}
+
+.button-link.small {
+    padding: 5px 12px;
+    font-size: 0.75rem;
+    white-space: nowrap;
+}
+
+.link-button {
+    margin: 0;
+    padding: 0;
+    background: none;
+    border: 0;
+    color: var(--ink-dim);
+    font-size: 0.8rem;
+    font-weight: 500;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.link-button:hover { color: var(--fail); filter: none; }
+
+.pacing-note {
+    margin: 18px 0 0;
+    font-size: 0.8rem;
+    color: var(--ink-dim);
+}
+
+.warnings {
+    margin: 0;
+    padding-left: 18px;
+    font-size: 0.83rem;
+    color: var(--ink-dim);
+}
+
+.prefilled-note {
+    background: rgba(87, 166, 255, 0.1);
+    border: 1px solid rgba(87, 166, 255, 0.3);
+    border-radius: var(--radius);
+    padding: 12px 16px;
+    margin-bottom: 20px;
+    font-size: 0.88rem;
+    color: var(--ink-dim);
+}
+
+.prefilled-note strong { color: var(--ink); }
+
+.tier-hint {
+    margin: 0 0 16px;
+    font-size: 0.83rem;
+    color: var(--ink-dim);
+}
+
+.tier-hint strong { color: var(--ink); }
+
+.handoff-note {
+    margin: 0 0 14px;
+    font-size: 0.83rem;
+    color: var(--ink-dim);
+    max-width: 60ch;
+}
+
+.handoff-note strong { color: var(--ink); }
+
+.pill-rejected { background: rgba(147, 161, 181, 0.16); color: var(--ink-dim); }

@@ -25,9 +25,9 @@ places the actual (paper) order in the broker.
 |---|---|---|
 | 1 | Core calculator — sizing math + `POST /api/analyze` | ✅ Done |
 | 2 | Thymeleaf calculator UI | ✅ Done |
-| 3 | Market data (Twelve Data primary, Finnhub secondary) | ✅ Done — DTOs pending live curl-verification |
-| 4 | Auto-tiering & watchlist scan | ⬜ Not started |
-| 5 | Trade journal UI + optional Spring AI | ⬜ Not started |
+| 3 | Market data (Twelve Data primary, Finnhub secondary) | ✅ Done — DTOs curl-verified 2026-07-29 |
+| 4 | Auto-tiering & watchlist scan | ✅ Done |
+| 5 | Trade journal + scorecard + graduation tracker | ✅ Done — optional Spring AI (5.9/5.10) skipped |
 
 Full task breakdown: [swing-trade-assistant-implementation-plan.md](swing-trade-assistant-implementation-plan.md).
 
@@ -36,20 +36,63 @@ Full task breakdown: [swing-trade-assistant-implementation-plan.md](swing-trade-
 ## Tech stack
 
 - Java 17 (enforced via `maven.compiler.release=17`; builds fine on a newer JDK)
-- Spring Boot 3.3.5 — Spring Web, Bean Validation, Thymeleaf, Cache (Caffeine)
+- Spring Boot 3.3.5 — Spring Web, Bean Validation, Thymeleaf, Cache (Caffeine), Data JPA
 - Spring `RestClient` for provider HTTP
+- H2 in file mode (`./data/swing-scope`), swappable to Postgres later
 - Maven
 - JUnit 5 + AssertJ + MockMvc + MockRestServiceServer, JaCoCo with an **80% line/branch/instruction gate**
 
-Phases 4–5 add Spring Data JPA (H2 file mode) and optionally Spring AI.
+All five phases are built. Spring AI (journal narrative, news summary) remains optional and unbuilt.
 
 ## Prerequisites
 
 - JDK 17 or newer (developed against JDK 21, compiled to 17 bytecode)
 - Maven 3.9+
 
-The calculator (Phases 1–2) needs no API key — it makes no external calls. Market data (Phase 3
-onward) needs free-tier keys, below.
+The calculator (Phases 1–2) and the journal (Phase 5) need no API key — neither makes external
+calls. Market data (Phase 3) needs free-tier keys, below.
+
+### Where your data lives
+
+Everything you record — journal entries and the watchlist — is stored in an **H2 database in file
+mode**, created automatically on first run:
+
+```
+./data/swing-scope.mv.db
+```
+
+The path is relative to wherever you start the app, and `data/` is git-ignored.
+
+- **It survives restarts.** Stopping the service does not delete anything; `mvn clean` doesn't touch
+  it either, since it lives outside `target/`. The only ephemeral database is the in-memory one the
+  test suite uses.
+- **To back it up**, copy that one file. To start fresh, delete it — the schema is recreated on the
+  next run.
+- **A `.lock.db` file** appears alongside it while the app is running. That's normal.
+- **Schema changes** are applied by Hibernate on startup (`ddl-auto: update`). It adds columns and
+  tables but never rewrites an existing column's type, so if a future change alters one you may need
+  to drop `data/` (or ALTER by hand in the console) — the app will tell you with an INSERT error
+  rather than silently misbehaving.
+
+Three ways to read the data:
+
+| How | When to use it |
+|---|---|
+| `GET /api/journal`, `GET /api/watchlist` | Everyday scripted access — see the curl sections below |
+| **H2 console** at http://localhost:8080/swing-scope/h2-console | Ad-hoc SQL, fixing a typo by hand |
+| Any JDBC tool (DBeaver, IntelliJ) | Bigger queries, exports |
+
+For the console and JDBC tools, connect with:
+
+```
+JDBC URL:  jdbc:h2:file:./data/swing-scope
+User:      sa
+Password:  (blank)
+```
+
+`AUTO_SERVER=TRUE` is set, so an external tool can connect **while the app is running**. The console
+is bound to localhost (`web-allow-others: false`); it is a live SQL console, so set
+`spring.h2.console.enabled: false` if you ever expose this app beyond your machine.
 
 ## API keys
 
@@ -91,6 +134,121 @@ A rule failure is *not* an error: the form comes back with a red **FAIL** badge 
 ("ratio 1.87 < 2.0"). Only structurally invalid input (blank ticker, negative or non-numeric prices)
 redisplays the form with per-field messages and no verdict.
 
+---
+
+## The scan — day-to-day workflow (UI)
+
+**http://localhost:8080/swing-scope/scan**
+
+The scan collapses the tedious first steps: paste a ticker list, and the tool fetches the data,
+applies the mechanical filters, and hands back a shortlist sorted by how much of your attention each
+name deserves. It never tells you what to buy.
+
+### 1. Paste a list, or scan your watchlist
+
+The textarea accepts whatever shape your screener gives you — commas, spaces, newlines, mixed case,
+duplicates. Run a screener elsewhere (this tool deliberately doesn't rebuild one), copy the tickers,
+paste, hit **Scan list**.
+
+Names you keep coming back to go on the **watchlist** at the bottom of the page; **Scan my watchlist**
+then runs the whole set without pasting anything.
+
+### 2. Read the tiers
+
+| Tier | Meaning |
+|---|---|
+| **Tier 1** | Trend intact, **average** daily volume > 1M **and** cap > $2B — chart these first |
+| **Tier 2** | Trend intact but thinner or smaller — tradeable, mind the fill |
+| **Tier 3** | Trend intact but event risk today: moved > 5%, or earnings within 3 days |
+| **Skip** | Failed the trend test — below the 50-EMA, or 50-EMA below the 200-EMA |
+| **Unavailable** | Data couldn't be fetched. Says nothing about the stock |
+
+Every row carries a short plain reason — `below the 50-EMA`, `up 9.3% today — news risk`,
+`earnings in 2 days`, `trend intact but thin — 420,000 avg shares/day vs 1,000,000 needed` — so a tier is
+never a black box.
+
+### 3. Plan a trade from a row
+
+Tier 1 and Tier 2 rows have a **Plan this trade** link. It opens the calculator with the ticker and
+**entry pre-filled from the current price**, and stop and target deliberately blank.
+
+That gap is the whole design. No API sells support and resistance; reading those two levels off the
+chart is the judgment this tool keeps human. You type two numbers, the tool does the rest — and from
+a PASS you're one click from a journalled trade.
+
+### A note on speed
+
+A cold scan is paced to Twelve Data's free-tier limit of **8 calls a minute**, so a 20-name list can
+take a few minutes the first time. Two things make that bearable:
+
+- **Short-circuiting.** A name that fails the trend test costs 2 provider calls instead of 4 — its
+  earnings date and market cap are never fetched, because a stock below its 50-EMA is a Skip either
+  way.
+- **Caching.** Candles are cached 6 hours, quotes 5 minutes. Re-scanning the same list is instant.
+
+---
+
+## The journal — day-to-day workflow (UI)
+
+The journal is the running scorecard and the real-money graduation gate. Open it from the **Journal**
+link in the header, or directly:
+
+**http://localhost:8080/swing-scope/journal**
+
+### 1. Plan and journal in one step
+
+Size a trade in the calculator. On a **PASS**, a *"Journal this trade"* button appears under the
+result with a setup picker (Breakout / Pullback / Reversal / Range / Other). One click creates a
+**PLANNED** entry prefilled with the ticker, entry, stop, target, ratio, shares and risk, and drops
+you on its detail page.
+
+Log the trade *when you plan it*, not after it closes — that's the whole point. You can also log one
+by hand with **Log a trade** on the journal page.
+
+**A FAIL can be saved too.** When the rules refuse a setup, the button becomes **Save as rejected**
+and files it with status `REJECTED` and the refusal reason as its lesson
+(*"Rejected by the rules: ratio 1.87 < 2.0"*). Rejected setups are terminal — they can't be filled or
+closed — and they stay out of the win rate, expectancy and the graduation count. They are a record
+that you passed on something, which is the discipline half of the scorecard.
+
+### 2. Record what actually happened
+
+On the detail page of a PLANNED trade:
+
+- **Mark filled** — enter the real fill price (and the real share count if it differed). Planned
+  numbers are kept; the fill is recorded separately, so you can see slippage.
+- **Never filled** — marks it NO_FILL. Excluded from the scorecard entirely; it isn't evidence
+  about anything.
+
+### 3. Close it
+
+A FILLED trade shows a close form asking for three things:
+
+| Field | Why it's required |
+|---|---|
+| Exit price | P&L is computed from it |
+| Did you follow your rules? | The one question that matters more than the outcome |
+| One-sentence lesson | Written while it's fresh, or not at all |
+
+**The outcome is derived, not chosen.** P&L = `(exit − fill) × shares`; positive files as
+CLOSED_WIN, negative as CLOSED_LOSS, exactly flat as SCRATCH. A losing trade cannot be recorded as
+a win.
+
+### 4. Read the scorecard
+
+The journal page header shows closed-trade count, win rate, net P&L, and expectancy (average dollars
+per closed trade). Below it, the graduation tracker with three gates:
+
+1. **25 closed trades**
+2. **Positive net total**
+3. **Rules followed on every loser**
+
+Only wins and losses count toward any of it — scratches, no-fills and rejected setups are excluded
+from the count, the win rate and expectancy. The tracker reports whether your record meets the bar you set; it is
+not a recommendation to trade real money.
+
+---
+
 ### The same thing over HTTP
 
 All API paths sit under the context path too. Analyze a setup:
@@ -128,6 +286,156 @@ curl -s -X POST http://localhost:8080/swing-scope/api/analyze -H 'Content-Type: 
 Structurally invalid input (negative prices, missing fields, malformed JSON) returns HTTP 400 with a
 `fieldErrors` map instead.
 
+### The scan over HTTP
+
+**Tier a pasted list.** `raw` takes the blob exactly as copied; `tickers` takes a parsed array
+instead if you have one:
+
+```bash
+curl -s -X POST http://localhost:8080/swing-scope/api/scan -H 'Content-Type: application/json' -d '{"raw":"AAPL, MSFT NVDA\nVZ"}'
+```
+
+```json
+{
+  "stocks": [
+    {
+      "symbol": "AAPL",
+      "tier": "TIER1",
+      "reason": "trend intact, liquid and established",
+      "price": 232.10,
+      "changePercent": 1.20,
+      "ema20": 229.40, "ema50": 224.00, "ema200": 205.10,
+      "distanceToEma50Percent": 3.62,
+      "volume": 12480000,
+      "averageVolume": 48200000,
+      "marketCapMillions": 3510000.00,
+      "nextEarningsDate": "2026-10-30",
+      "inUptrend": true,
+      "bigMover": false,
+      "earningsWithin3Days": false
+    }
+  ],
+  "byTier": { "TIER1": [ … ], "SKIP": [ … ] },
+  "requested": 4,
+  "elapsedMillis": 1840,
+  "warnings": []
+}
+```
+
+Results are sorted best-tier-first, then by distance above the 50-EMA. `byTier` gives the same rows
+grouped, which is what the UI renders.
+
+**Scan the saved watchlist** — no body needed:
+
+```bash
+curl -s -X POST http://localhost:8080/swing-scope/api/scan/watchlist
+```
+
+**Manage the watchlist:**
+
+```bash
+curl -s -X POST http://localhost:8080/swing-scope/api/watchlist -H 'Content-Type: application/json' -d '{"ticker":"vz","note":"dividend payer"}'
+```
+
+```bash
+curl -s http://localhost:8080/swing-scope/api/watchlist
+```
+
+```bash
+curl -s -X POST http://localhost:8080/swing-scope/api/watchlist/1/note -H 'Content-Type: application/json' -d '{"note":"slow mover"}'
+```
+
+```bash
+curl -s -X DELETE http://localhost:8080/swing-scope/api/watchlist/1
+```
+
+Adding a ticker already on the list is a **no-op, not an error** — re-adding is safe. A blank ticker
+returns 400; an unknown id returns 404.
+
+**A scan never fails as a whole.** A ticker whose data can't be fetched comes back as
+`"tier": "UNAVAILABLE"` with the reason attached, and the rest of the list is still tiered. With no
+API keys configured, every row returns `UNAVAILABLE` with
+`no configured provider offers QUOTE — check the API keys in the environment` rather than an error
+page.
+
+### The journal over HTTP
+
+The whole lifecycle, end to end. Every command below is real and was run against the app.
+
+**Log a planned trade** — returns `201` with the created entry, including its `id`:
+
+```bash
+curl -s -X POST http://localhost:8080/swing-scope/api/journal -H 'Content-Type: application/json' -d '{"ticker":"carr","setupType":"PULLBACK","entry":15.50,"stop":14.75,"target":18.50,"ratio":4.00,"shares":6,"riskAmount":4.50}'
+```
+
+**Mark it filled** at the price you actually got (replace `1` with the id):
+
+```bash
+curl -s -X POST http://localhost:8080/swing-scope/api/journal/1/fill -H 'Content-Type: application/json' -d '{"fillPrice":15.55,"actualShares":6}'
+```
+
+**Close it.** The exit price decides the outcome; the lesson and rules answer are mandatory:
+
+```bash
+curl -s -X POST http://localhost:8080/swing-scope/api/journal/1/close -H 'Content-Type: application/json' -d '{"exitPrice":18.50,"lessonText":"waited for the trigger candle instead of anticipating","rulesFollowed":true}'
+```
+
+→ `"status": "CLOSED_WIN", "realizedPnl": 17.70` — that is `(18.50 − 15.55) × 6`.
+
+**Save a setup the rules refused** — terminal on arrival, counted nowhere:
+
+```bash
+curl -s -X POST http://localhost:8080/swing-scope/api/journal/rejected -H 'Content-Type: application/json' -d '{"ticker":"CI","setupType":"BREAKOUT","entry":20.00,"stop":19.00,"target":21.87,"ratio":1.87,"shares":5,"riskAmount":5.00,"reason":"ratio 1.87 < 2.0"}'
+```
+
+→ `"status": "REJECTED", "lessonText": "Rejected by the rules: ratio 1.87 < 2.0"`. The `stats`
+endpoint reports these under `rejected`.
+
+**Read the scorecard:**
+
+```bash
+curl -s http://localhost:8080/swing-scope/api/journal/stats
+```
+
+```json
+{
+  "totalEntries": 2,
+  "openTrades": 1,
+  "closedCount": 1,
+  "wins": 1,
+  "losses": 0,
+  "scratches": 0,
+  "noFills": 0,
+  "winRate": 100.0,
+  "netPnl": 17.70,
+  "expectancy": 17.70,
+  "averageWin": 17.70,
+  "averageLoss": 0,
+  "losersWithRulesFollowed": 0,
+  "graduationTarget": 25,
+  "graduationPercent": 4,
+  "graduationMet": false
+}
+```
+
+**Other operations:**
+
+```bash
+curl -s http://localhost:8080/swing-scope/api/journal
+```
+
+```bash
+curl -s -X POST http://localhost:8080/swing-scope/api/journal/1/no-fill
+```
+
+```bash
+curl -s -X DELETE http://localhost:8080/swing-scope/api/journal/1
+```
+
+**Error responses.** An illegal status move returns **409**, not 500 — closing a trade that never
+filled gives `"cannot move a trade from PLANNED to CLOSED_WIN"`. An unknown id returns **404**. A
+close missing its lesson or rules answer returns **400** with a `fieldErrors` map.
+
 ### Build and test
 
 ```bash
@@ -153,10 +461,32 @@ Everything is served under the `/swing-scope` context path (`server.servlet.cont
 |---|---|---|
 | `/swing-scope/` | GET | Calculator form |
 | `/swing-scope/analyze` | POST | Form submit → same page with the verdict |
+| `/swing-scope/scan` | GET, POST | Scan form / tiered results |
+| `/swing-scope/scan/watchlist` | POST | Scan the saved watchlist |
+| `/swing-scope/plan?ticker=&entry=` | GET | Calculator pre-filled from a scan row |
+| `/swing-scope/watchlist` | POST | Add a ticker (UI) |
+| `/swing-scope/watchlist/{id}/delete` | POST | Remove a ticker (UI) |
+| `/swing-scope/api/scan` | POST | Tier a pasted list |
+| `/swing-scope/api/scan/watchlist` | POST | Tier the saved watchlist |
+| `/swing-scope/api/watchlist` | GET, POST | List / add watchlist tickers |
+| `/swing-scope/api/watchlist/{id}` | DELETE | Remove a watchlist ticker |
+| `/swing-scope/api/watchlist/{id}/note` | POST | Update a note |
+| `/swing-scope/journal` | GET | Journal list — the running scorecard |
+| `/swing-scope/journal/new` | GET | Log-a-trade form |
+| `/swing-scope/journal/{id}` | GET | Trade detail — plan, execution, outcome |
+| `/swing-scope/journal/{id}/edit` | GET | Edit form |
+| `/swing-scope/api/journal` | GET, POST | List / create entries |
+| `/swing-scope/api/journal/rejected` | POST | Record a setup the rules refused |
+| `/swing-scope/api/journal/stats` | GET | Scorecard totals |
+| `/swing-scope/api/journal/{id}` | GET, PUT, DELETE | Fetch / update / delete one entry |
+| `/swing-scope/api/journal/{id}/fill` | POST | PLANNED → FILLED |
+| `/swing-scope/api/journal/{id}/no-fill` | POST | PLANNED → NO_FILL |
+| `/swing-scope/api/journal/{id}/close` | POST | FILLED → CLOSED_* |
 | `/swing-scope/api/analyze` | POST | JSON API |
 | `/swing-scope/api/marketdata/{symbol}` | GET | Combined snapshot: price, EMAs, cap, earnings |
 | `/swing-scope/api/marketdata/search?q=` | GET | Ticker lookup |
 | `/swing-scope/api/marketdata/status` | GET | Is the US market open |
+| `/swing-scope/h2-console` | GET | SQL console over the journal database (localhost only) |
 
 ### `POST /api/analyze`
 
@@ -291,12 +621,30 @@ marketdata:
 
 ## Caching and rate limits
 
-Twelve Data's free tier allows 800 calls a day and 8 a minute, so a repeated 20-name watchlist scan
-has to come out of cache rather than the wire. Every provider call is cached with a per-endpoint TTL
-(Caffeine): quotes 5 minutes, daily candles 6 hours, earnings 12 hours, profiles 24 hours.
+Twelve Data's free tier allows 800 calls a day and 8 a minute; Finnhub allows 60 a minute. Three
+mechanisms keep scans inside that budget:
 
-A 429 is retried with doubling backoff (2 retries by default) before it surfaces. Every outbound
-call is logged with its provider, target, duration, and retry count.
+**Pacing.** Every outbound call passes through a sliding-window limiter set from
+`marketdata.<provider>.requests-per-minute`. It blocks *before* the request goes out rather than
+retrying after a 429, which is both faster and cheaper. Log lines show it: `(paced 4300ms)`.
+
+**Caching.** Caffeine, with a TTL per endpoint:
+
+| Cache | TTL | Why |
+|---|---|---|
+| `quotes` | 5m | Prices move; the tool is for daily charts |
+| `candles` | 6h | Daily bars change once a day |
+| `earnings` | 12h | Calendar dates barely move |
+| `profile`, `search` | 24h | Market cap and listings are near-static |
+| `news` | 1h | Fresh enough to explain today's move |
+| `marketStatus` | 10m | |
+
+**Short-circuiting.** A scanned name that fails the trend test never triggers the market-cap and
+earnings lookups — 2 calls instead of 4.
+
+Together: a cold 20-name scan is roughly 40 Twelve Data calls (~5 minutes at 8/min); re-scanning the
+same list within the cache window costs nothing. A 429 that slips through anyway is retried twice
+with doubling backoff before surfacing as HTTP 429 with a `Retry-After` header.
 
 ## Logging
 
@@ -332,7 +680,8 @@ src/main/java/com/swingscope/
              MarketDataController, TradeSetupForm, ApiExceptionHandler
 
 src/main/resources/
-  templates/calculator.html, templates/fragments/layout.html
+  templates/calculator.html, scan.html, journal.html, journal-detail.html, journal-form.html
+  templates/fragments/layout.html
   static/css/app.css
   application.yml
 ```

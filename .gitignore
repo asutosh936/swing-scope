@@ -15,3 +15,6 @@ application-secrets.yml
 # Claude Code local files (agent settings, preview launch config)
 .claude/
 CLAUDE.local.md
+
+# H2 file-mode database
+data/

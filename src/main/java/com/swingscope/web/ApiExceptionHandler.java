@@ -1,6 +1,9 @@
 package com.swingscope.web;
 
+import com.swingscope.service.journal.InvalidTransitionException;
+import com.swingscope.service.journal.JournalEntryNotFoundException;
 import com.swingscope.service.marketdata.MarketDataException;
+import com.swingscope.service.scan.WatchlistEntryNotFoundException;
 import com.swingscope.service.marketdata.ProviderUnavailableException;
 import com.swingscope.service.marketdata.RateLimitedException;
 import com.swingscope.service.marketdata.UnknownSymbolException;
@@ -62,6 +65,34 @@ public class ApiExceptionHandler {
     public ResponseEntity<Map<String, Object>> handleProviderUnavailable(ProviderUnavailableException ex) {
         log.error("Provider {} unavailable: {}", ex.provider(), ex.getMessage());
         return status(HttpStatus.SERVICE_UNAVAILABLE, ex.getMessage(), ex.provider());
+    }
+
+    /** Journal entry id that doesn't exist. */
+    @ExceptionHandler(JournalEntryNotFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleJournalNotFound(JournalEntryNotFoundException ex) {
+        log.warn("Journal lookup failed: {}", ex.getMessage());
+        return status(HttpStatus.NOT_FOUND, ex.getMessage(), "journal");
+    }
+
+    /** Watchlist ticker or id that doesn't exist. */
+    @ExceptionHandler(WatchlistEntryNotFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleWatchlistNotFound(WatchlistEntryNotFoundException ex) {
+        log.warn("Watchlist lookup failed: {}", ex.getMessage());
+        return status(HttpStatus.NOT_FOUND, ex.getMessage(), "watchlist");
+    }
+
+    /** A blank ticker on the way into the watchlist. */
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<Map<String, Object>> handleIllegalArgument(IllegalArgumentException ex) {
+        log.warn("Rejected request: {}", ex.getMessage());
+        return status(HttpStatus.BAD_REQUEST, ex.getMessage(), null);
+    }
+
+    /** An illegal status move, or a close missing its lesson / rules answer. */
+    @ExceptionHandler(InvalidTransitionException.class)
+    public ResponseEntity<Map<String, Object>> handleInvalidTransition(InvalidTransitionException ex) {
+        log.warn("Rejected journal transition: {}", ex.getMessage());
+        return status(HttpStatus.CONFLICT, ex.getMessage(), "journal");
     }
 
     /** Anything else that went wrong upstream is a bad gateway, not our bug. */

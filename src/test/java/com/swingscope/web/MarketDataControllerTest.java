@@ -50,7 +50,7 @@ class MarketDataControllerTest {
         return new MarketSnapshot("AAPL",
                 new BigDecimal("214.25"), new BigDecimal("3.00"),
                 new BigDecimal("210.1234"), new BigDecimal("205.5678"), new BigDecimal("190.9876"),
-                51_234_567L, new BigDecimal("3250000"), LocalDate.of(2026, 10, 30),
+                51_234_567L, 48_000_000L, new BigDecimal("3250000"), LocalDate.of(2026, 10, 30),
                 true, false, false, 250, List.of());
     }
 

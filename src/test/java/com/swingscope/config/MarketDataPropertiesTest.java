@@ -27,7 +27,7 @@ class MarketDataPropertiesTest {
     void keepsConfiguredValues() {
         MarketDataProperties properties = new MarketDataProperties(
                 new MarketDataProperties.Provider("https://api.twelvedata.com", "key", true, 5,
-                        Duration.ofSeconds(2)),
+                        Duration.ofSeconds(2), 0),
                 null,
                 new MarketDataProperties.Ttl(Duration.ofMinutes(1), Duration.ofHours(2),
                         Duration.ofHours(3), Duration.ofHours(4), Duration.ofHours(5),
@@ -51,12 +51,12 @@ class MarketDataPropertiesTest {
     }
 
     private static boolean usable(String baseUrl, String apiKey, boolean enabled) {
-        return new MarketDataProperties.Provider(baseUrl, apiKey, enabled, 2, Duration.ZERO).isUsable();
+        return new MarketDataProperties.Provider(baseUrl, apiKey, enabled, 2, Duration.ZERO, 0).isUsable();
     }
 
     @Test
     void aNonPositiveRetryCountFallsBackToTheDefault() {
-        assertThat(new MarketDataProperties.Provider("u", "k", true, 0, null).retries()).isEqualTo(2);
-        assertThat(new MarketDataProperties.Provider("u", "k", true, -1, null).retries()).isEqualTo(2);
+        assertThat(new MarketDataProperties.Provider("u", "k", true, 0, null, 0).retries()).isEqualTo(2);
+        assertThat(new MarketDataProperties.Provider("u", "k", true, -1, null, 0).retries()).isEqualTo(2);
     }
 }

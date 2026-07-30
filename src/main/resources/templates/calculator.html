@@ -14,6 +14,13 @@
             and how many shares fit — and refuses the setup if it breaks a rule.
         </p>
 
+        <div class="prefilled-note" th:if="${prefilled}">
+            <strong th:text="${form.ticker}">VZ</strong> pre-filled from the scan at its current
+            price. Now read the chart and type the two numbers no API can give you:
+            <strong>stop</strong> (just under the support you see) and <strong>target</strong>
+            (the nearest resistance above).
+        </div>
+
         <form th:action="@{/analyze}" th:object="${form}" method="post" novalidate>
             <div class="grid">
                 <label>
@@ -121,6 +128,35 @@
             </tr>
             </tbody>
         </table>
+
+        <!-- 5.8: planning and journalling in one step, not two. Offered on a FAIL too, so the
+             setups your rules turned down are recorded rather than forgotten. -->
+        <form class="journal-handoff" th:action="@{/journal/from-calculator}" method="post">
+            <input type="hidden" name="pass" th:value="${analysis.pass}">
+            <input type="hidden" name="reason" th:value="${analysis.reason}">
+            <input type="hidden" name="ticker" th:value="${analysis.ticker}">
+            <input type="hidden" name="entry" th:value="${form.entry}">
+            <input type="hidden" name="stop" th:value="${form.stop}">
+            <input type="hidden" name="target" th:value="${form.target}">
+            <input type="hidden" name="ratio" th:value="${analysis.ratio}">
+            <input type="hidden" name="shares" th:value="${analysis.wholeShares}">
+            <input type="hidden" name="riskAmount" th:value="${analysis.totalRisk}">
+            <p class="handoff-note" th:unless="${analysis.pass}">
+                This setup failed the rules, so there is nothing to size. Saving it files a
+                <strong>Rejected</strong> record with the reason — it never counts toward your win
+                rate or the graduation gate, it just shows you passed on it.
+            </p>
+            <label>
+                <span th:if="${analysis.pass}">Setup you are trading</span>
+                <span th:unless="${analysis.pass}">Setup you looked at</span>
+                <select name="setupType">
+                    <option th:each="type : ${setupTypes}" th:value="${type}"
+                            th:text="${type.label}">Breakout</option>
+                </select>
+            </label>
+            <button type="submit"
+                    th:text="${analysis.pass} ? 'Journal this trade' : 'Save as rejected'">Journal this trade</button>
+        </form>
 
         <aside class="rules" th:if="${analysis.pass}">
             <h3>Manage it by the rules</h3>

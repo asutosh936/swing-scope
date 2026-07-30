@@ -47,7 +47,7 @@ class FinnhubClientTest {
 
     private static MarketDataProperties properties(String apiKey) {
         return new MarketDataProperties(null,
-                new MarketDataProperties.Provider(BASE, apiKey, true, 2, Duration.ZERO), null);
+                new MarketDataProperties.Provider(BASE, apiKey, true, 2, Duration.ZERO, 0), null);
     }
 
     // ------------------------------------------------------------------------------ capability
@@ -71,7 +71,7 @@ class FinnhubClientTest {
     @Test
     void disabledProviderIsUnavailable() {
         MarketDataProperties disabled = new MarketDataProperties(null,
-                new MarketDataProperties.Provider(BASE, "token", false, 2, Duration.ZERO), null);
+                new MarketDataProperties.Provider(BASE, "token", false, 2, Duration.ZERO, 0), null);
         FinnhubClient offline = new FinnhubClient(RestClient.builder(), disabled);
 
         assertThat(offline.isAvailable()).isFalse();

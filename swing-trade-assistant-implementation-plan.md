@@ -99,24 +99,24 @@ Status legend: ☐ Not started · ◐ In progress · ☑ Done
 | | 3.5 | `EmaCalculator` from Twelve Data closes + hand-checked test | ☑ |
 | | 3.6 | Caching (`@Cacheable`, respect 800/day) | ☑ |
 | | 3.7 | `GET /api/marketdata/{symbol}` snapshot (assembled across providers) | ☑ |
-| **4 — Auto-Tiering & Scan** | 4.1 | `TierService.tier(tickers)` with rule engine | ☐ |
-| | 4.2 | `Watchlist` entity + CRUD + UI list | ☐ |
-| | 4.3 | `scan.html` (paste tickers / scan watchlist → tiered table) | ☐ |
-| | 4.4 | "Plan this trade" prefills calculator | ☐ |
-| | 4.5 | Rate-limit-aware batching | ☐ |
-| **5 — Journal + UI + AI** | 5.1 | `TradeJournalEntry` entity + repository | ☐ |
-| | 5.2 | Journal CRUD REST endpoints | ☐ |
-| | 5.3 | **Journal UI: list view = running scorecard** | ☐ |
-| | 5.4 | **Journal UI: detail view (plan + execution + outcome)** | ☐ |
-| | 5.5 | **Journal UI: create/edit form + status transitions** | ☐ |
-| | 5.6 | Auto-computed P&L + win-rate/expectancy summary | ☐ |
-| | 5.7 | Graduation tracker (progress to 25–30, positive total) | ☐ |
-| | 5.8 | "Plan this trade" → auto-creates a PLANNED journal entry | ☐ |
-| | 5.9 | (optional) Spring AI news-summary endpoint | ☐ |
-| | 5.10 | (optional) Spring AI journal-narrative endpoint | ☐ |
-| **Cross-cutting** | X.1 | Config & secrets (env var, example yml, git-ignore) | ◐ |
-| | X.2 | Bean Validation on `TradeSetup` | ◐ |
-| | X.3 | Tests: calculator + EMA + provider clients (MockRestServiceServer) | ◐ |
+| **4 — Auto-Tiering & Scan** | 4.1 | `TierService.tier(tickers)` with rule engine | ☑ |
+| | 4.2 | `Watchlist` entity + CRUD + UI list | ☑ |
+| | 4.3 | `scan.html` (paste tickers / scan watchlist → tiered table) | ☑ |
+| | 4.4 | "Plan this trade" prefills calculator | ☑ |
+| | 4.5 | Rate-limit-aware batching | ☑ |
+| **5 — Journal + UI + AI** | 5.1 | `TradeJournalEntry` entity + repository | ☑ |
+| | 5.2 | Journal CRUD REST endpoints | ☑ |
+| | 5.3 | **Journal UI: list view = running scorecard** | ☑ |
+| | 5.4 | **Journal UI: detail view (plan + execution + outcome)** | ☑ |
+| | 5.5 | **Journal UI: create/edit form + status transitions** | ☑ |
+| | 5.6 | Auto-computed P&L + win-rate/expectancy summary | ☑ |
+| | 5.7 | Graduation tracker (progress to 25–30, positive total) | ☑ |
+| | 5.8 | "Plan this trade" → auto-creates a PLANNED journal entry | ☑ |
+| | 5.9 | (optional) Spring AI news-summary endpoint | ☐ deferred |
+| | 5.10 | (optional) Spring AI journal-narrative endpoint | ☐ deferred |
+| **Cross-cutting** | X.1 | Config & secrets (env var, example yml, git-ignore) | ☑ |
+| | X.2 | Bean Validation on `TradeSetup` | ◐ field-level done; cross-field stop<entry<target lives in the service, not as a constraint |
+| | X.3 | Tests: calculator + EMA + provider clients (MockRestServiceServer) | ☑ |
 | | X.4 | README + disclaimer | ☑ |
 | | X.5 | Logging (external calls + rate-limit hits) | ☑ |
 
@@ -221,6 +221,22 @@ Carry-forward notes for Phase 4:
 
 **Deliverable:** one click → a tiered shortlist. Human only charts the Tier-1 names and enters stop/target.
 
+### Phase 4 — Status: ☑ Done (231 tests green; 97.8% instruction / 88.9% branch / 97.4% line)
+Decisions taken (answers to what this section left open):
+- **Tier 1 needs BOTH** average volume > **1,000,000** AND market cap > **$2B**; failing either drops it to Tier 2. Configurable via `scan.tier1-min-volume` and `scan.tier1-min-market-cap-millions`.
+- **Liquidity is judged on `averageVolume`, not `volume`.** Shipped wrong first time: the snapshot carried only today's running session volume, so a live scan demoted COST ($428B cap) to Tier 2 for "169,476 shares" — a partial mid-session figure against its ~2M daily average. `MarketSnapshot` now carries both; the filter uses the average and falls back to today's only when the provider omits it. Regression test: `liquidityUsesAverageVolumeNotTodays`.
+- **Market cap is compared in MILLIONS** (`2000` = $2B), matching what Finnhub returns. This was the single easiest thing in the phase to get wrong by 10⁶ — there is a test named `marketCapThresholdIsInMillions` pinning it.
+- **Rule order matters and is load-bearing:** trend test → earnings-within-3-days → big-mover → liquidity/size split. Earnings outranks the big-mover flag, so a stock that is both reports "earnings in 2 days" (the blocking reason) rather than the move.
+- **`null` inUptrend is SKIP with its own reason** ("not enough history … inconclusive"), never silently treated as false.
+- **Short-circuiting (4.5):** a name failing the trend test never triggers the market-cap and earnings lookups — 2 provider calls instead of 4.
+- **Pacing (4.5):** a sliding-window `RateLimiter` in `AbstractRestProvider` blocks *before* each call, set from `marketdata.<provider>.requests-per-minute` (Twelve Data 8, Finnhub 60). Blocking beats being 429'd. A cold 20-name scan is ~40 Twelve Data calls ≈ 5 minutes; repeats come from cache.
+- **Batch ceiling:** `scan.max-tickers-per-scan` (default 30). Over that, the list is truncated with a warning rather than running for an hour.
+- **A scan never fails as a whole** — an unfetchable ticker becomes `Tier.UNAVAILABLE` with the provider's message, and the other rows still tier. `UNAVAILABLE` is explicitly *not* a verdict about the stock.
+- **"Plan this trade" (4.4)** is `GET /plan?ticker=&entry=`, pre-filling entry from the current price and leaving **stop and target blank on purpose**. Only Tier 1/2 rows offer the link.
+- **Watchlist:** adding a ticker already present is a **no-op, not an error**, so re-adding is safe.
+
+**Still open:** the screener itself is deliberately not built (see *Screener Sourcing* above) — Option 1, paste from Finviz, is what the scan textarea expects.
+
 ---
 
 ## PHASE 5 — Journal + UI + (optional) Spring AI
@@ -241,6 +257,29 @@ Carry-forward notes for Phase 4:
    - Guardrail in prompt + code: AI never recommends buying/selling; it summarizes and narrates only.
 
 **Deliverable:** a browser-based journal that is the single source of truth for the scorecard and the real-money graduation gate, wired directly into the scan/plan flow.
+
+### Phase 5 — Status: ☑ Done, 5.1–5.8 (173 tests green; 98.2% instruction / 91.6% branch / 98.0% line)
+Built **out of the suggested order** — Phase 4 is still unstarted, so 5.8's "Plan this trade" hand-off currently runs from the Phase 2 calculator (`POST /journal/from-calculator`) rather than from `scan.html`. Phase 4 should post to that same endpoint instead of adding a second path.
+
+Decisions taken (answers to the questions this plan left open):
+- **P&L** = `(exitPrice − fillPrice) × shares`, long only, **no commissions**. **Expectancy** = net P&L ÷ closed-trade count, i.e. average dollars per completed trade.
+- **Only CLOSED_WIN and CLOSED_LOSS count.** SCRATCH and NO_FILL are excluded from the count, the win rate, expectancy and the graduation gate — neither is evidence about the strategy. `TradeStatus.isCountedTrade()` is the single place this is decided.
+- **`setupType` is an enum** — BREAKOUT / PULLBACK / REVERSAL / RANGE / OTHER — so the scorecard can group by setup later.
+- **The outcome is derived, never chosen.** `close()` computes P&L and assigns CLOSED_WIN / CLOSED_LOSS / SCRATCH from its sign, so a loser cannot be filed as a win. Exactly break-even is a SCRATCH.
+- **Closing requires exit price + lesson + rules-followed.** Enforced in the service, not just the form, so the API cannot skip them either.
+- **Legal transitions only:** PLANNED → FILLED | NO_FILL, FILLED → CLOSED_*. Anything else throws `InvalidTransitionException` → HTTP **409** on the API, a flash error in the UI.
+- **Graduation = 25 closed trades AND positive net AND rules followed on every loser.** All three, or the gate stays shut. It reports a fact about the record; it is not permission to trade.
+- **Persistence:** H2 file mode at `./data/swing-scope` (git-ignored), `ddl-auto: update`. Tests run on in-memory H2 via `@ActiveProfiles("test")` so they never touch the real file — **any new `@SpringBootTest` must carry that annotation.**
+- **Deferred:** 5.9/5.10 (Spring AI news summary + journal narrative). They need an LLM key and a Spring AI dependency; the journal is finished without them. `MarketDataService.getRecentNews()` already exists as the input for 5.9.
+
+### Post-Phase-5 additions (2026-07-29)
+- **`REJECTED` status.** The calculator offers "Save as rejected" on a FAIL, filing the setup with the refusal reason as its lesson. Terminal on arrival — cannot be filled or closed — and excluded from win rate, expectancy, the graduation count *and* the open-trade count. Exposed as `POST /api/journal/rejected`. `JournalStats.rejected` reports the tally.
+- **H2 console enabled**, localhost-only (`web-allow-others: false`) at `/swing-scope/h2-console`. Turn it off before exposing the app anywhere.
+- **Bug fixed: liquidity used today's volume.** `MarketSnapshot.volume` is the running session total, partial mid-day; the Tier 1 test now uses `averageVolume` (falling back to today's only when the provider omits it). This was demoting mega-caps to Tier 2 — COST showed 169k shares against a ~2M average. `MarketSnapshot` now carries both.
+- **Bug fixed: enum columns were native H2 ENUMs.** Hibernate maps a Java enum to H2's native ENUM type, which fixes the permitted values at creation time; `ddl-auto: update` never widens it. Adding `REJECTED` therefore failed at INSERT on any pre-existing database (`Value not permitted for column ...`). Both enum columns are now pinned with `columnDefinition = "varchar(20)"`, so future constants need no migration. **The test suite could not catch this** — it runs `create-drop` on in-memory H2, where the schema is always rebuilt from the current enum. `EnumColumnMappingTest` now guards the mapping. Any future schema change that alters a column type still needs a manual migration or a dropped `data/`.
+- **Bug fixed: table buttons rendered invisible.** `.journal-table a` (specificity 0,1,1) beat `.button-link` (0,1,0) and painted "Plan this trade" accent-blue on its own accent-blue background. Fixed with `.journal-table a.button-link`, guarded by `ScanStylesheetTest` — HTML-level tests could not catch it because the markup was correct.
+
+**Open question for Phase 4/5 integration:** partial exits are still not modelled — one fill price, one exit price, one share count. The Phase 2 management-rules panel tells the user "partial exits are fine", so either the journal needs to handle them or that wording should change.
 
 ---
 

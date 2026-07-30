@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('trade detail')}"></head>
+<body>
+
+<header th:replace="~{fragments/layout :: masthead}"></header>
+
+<main class="wrap">
+
+    <div class="flash" th:if="${flash}" th:text="${flash}"></div>
+    <div class="flash flash-error" th:if="${error}" th:text="${error}"></div>
+
+    <section class="card">
+        <div class="section-head">
+            <h1>
+                <span th:text="${entry.ticker}">VZ</span>
+                <span class="pill" th:classappend="'pill-' + ${entry.status.name().toLowerCase()}"
+                      th:text="${entry.status.label}">Planned</span>
+            </h1>
+            <div class="head-actions">
+                <a class="button-link secondary" th:href="@{/journal}">← All trades</a>
+                <a class="button-link secondary" th:href="@{/journal/{id}/edit(id=${entry.id})}">Edit</a>
+            </div>
+        </div>
+        <p class="lede">
+            Trade #<span th:text="${entry.id}">1</span> · <span th:text="${entry.setupType.label}">Breakout</span>
+            · planned <span th:text="${entry.datePlanned}">2026-07-29</span>
+        </p>
+
+        <div class="lifecycle">
+            <!-- the plan -->
+            <div class="band">
+                <h3>The plan</h3>
+                <table class="numbers">
+                    <tr><th scope="row">Entry</th><td th:text="${'$' + entry.entry}">$40.00</td></tr>
+                    <tr><th scope="row">Stop</th><td th:text="${'$' + entry.stop}">$39.00</td></tr>
+                    <tr><th scope="row">Target</th><td th:text="${'$' + entry.target}">$43.60</td></tr>
+                    <tr><th scope="row">Reward : risk</th>
+                        <td th:text="${entry.ratio != null} ? ${entry.ratio} : '—'">3.60</td></tr>
+                    <tr><th scope="row">Shares</th><td th:text="${entry.shares}">5</td></tr>
+                    <tr><th scope="row">Planned risk</th>
+                        <td th:text="${entry.riskAmount != null} ? ${'$' + entry.riskAmount} : '—'">$5.00</td></tr>
+                </table>
+            </div>
+
+            <!-- execution -->
+            <div class="band">
+                <h3>Execution</h3>
+                <table class="numbers">
+                    <tr><th scope="row">Fill price</th>
+                        <td th:text="${entry.fillPrice != null} ? ${'$' + entry.fillPrice} : '—'">$40.05</td></tr>
+                    <tr><th scope="row">Shares filled</th><td th:text="${entry.shares}">5</td></tr>
+                    <tr><th scope="row">Date filled</th>
+                        <td th:text="${entry.dateFilled != null} ? ${entry.dateFilled} : '—'">—</td></tr>
+                    <tr><th scope="row">Risk at entry</th>
+                        <td th:text="${entry.riskAtEntry() != null} ? ${'$' + entry.riskAtEntry()} : '—'">$5.25</td></tr>
+                </table>
+            </div>
+
+            <!-- outcome -->
+            <div class="band">
+                <h3>Outcome</h3>
+                <table class="numbers">
+                    <tr><th scope="row">Exit price</th>
+                        <td th:text="${entry.exitPrice != null} ? ${'$' + entry.exitPrice} : '—'">—</td></tr>
+                    <tr><th scope="row">Date closed</th>
+                        <td th:text="${entry.dateClosed != null} ? ${entry.dateClosed} : '—'">—</td></tr>
+                    <tr><th scope="row">Realized P&amp;L</th>
+                        <td th:if="${entry.realizedPnl != null}"
+                            th:class="${entry.realizedPnl.signum() >= 0} ? 'pnl-up' : 'pnl-down'"
+                            th:text="${'$' + entry.realizedPnl}">$17.75</td>
+                        <td th:if="${entry.realizedPnl == null}">—</td></tr>
+                    <tr><th scope="row">Rules followed</th>
+                        <td>
+                            <span th:if="${entry.rulesFollowed == null}">—</span>
+                            <span th:if="${entry.rulesFollowed == true}" class="gate-met">Yes</span>
+                            <span th:if="${entry.rulesFollowed == false}" class="pnl-down">No</span>
+                        </td></tr>
+                </table>
+            </div>
+        </div>
+
+        <div class="lesson" th:if="${entry.lessonText != null and !entry.lessonText.isBlank()}">
+            <h3>Lesson</h3>
+            <p th:text="${entry.lessonText}">Waited for the trigger candle instead of anticipating.</p>
+        </div>
+    </section>
+
+    <!-- 5.5 status transitions -->
+    <section class="card" th:if="${entry.status.name() == 'PLANNED'}">
+        <h3>Did it fill?</h3>
+        <form th:action="@{/journal/{id}/fill(id=${entry.id})}" method="post" class="inline-form">
+            <label>
+                <span>Fill price</span>
+                <input type="number" step="0.01" min="0" name="fillPrice" required>
+            </label>
+            <label>
+                <span>Shares filled <small>(if different)</small></span>
+                <input type="number" step="1" min="0" name="actualShares" th:value="${entry.shares}">
+            </label>
+            <button type="submit">Mark filled</button>
+        </form>
+        <form th:action="@{/journal/{id}/no-fill(id=${entry.id})}" method="post" class="inline-form">
+            <button type="submit" class="secondary">Never filled</button>
+        </form>
+    </section>
+
+    <section class="card" th:if="${entry.status.name() == 'FILLED'}">
+        <h3>Close this trade</h3>
+        <p class="lede">
+            The outcome is worked out from the exit price — a loser can't be filed as a win. The
+            lesson and the rules answer are required, and this is the moment they're worth writing.
+        </p>
+        <form th:action="@{/journal/{id}/close(id=${entry.id})}" method="post">
+            <div class="grid">
+                <label>
+                    <span>Exit price</span>
+                    <input type="number" step="0.01" min="0" name="exitPrice" required>
+                </label>
+                <label>
+                    <span>Did you follow your rules?</span>
+                    <select name="rulesFollowed" required>
+                        <option value="">Choose…</option>
+                        <option value="true">Yes — traded the plan</option>
+                        <option value="false">No — deviated</option>
+                    </select>
+                </label>
+            </div>
+            <label class="full">
+                <span>One-sentence lesson</span>
+                <input type="text" name="lessonText" maxlength="500" required
+                       placeholder="What would you tell yourself before this trade?">
+            </label>
+            <button type="submit">Close trade</button>
+        </form>
+    </section>
+
+    <section class="card" th:if="${entry.status.terminal}">
+        <p class="muted">
+            This trade is closed — <span th:text="${entry.status.label}">Closed — win</span>.
+            <span th:if="${entry.status.countedTrade}">It counts toward the scorecard.</span>
+            <span th:unless="${entry.status.countedTrade}">
+                It is excluded from the win rate, expectancy and the graduation count.
+            </span>
+        </p>
+        <form th:action="@{/journal/{id}/delete(id=${entry.id})}" method="post">
+            <button type="submit" class="danger">Delete entry</button>
+        </form>
+    </section>
+
+</main>
+
+<footer th:replace="~{fragments/layout :: disclaimer}"></footer>
+
+</body>
+</html>

@@ -20,13 +20,16 @@ public abstract class AbstractRestProvider implements MarketDataProvider {
 
     protected final RestClient http;
     protected final MarketDataProperties.Provider config;
+    protected final RateLimiter rateLimiter;
 
     protected AbstractRestProvider(RestClient.Builder builder, MarketDataProperties.Provider config) {
         this.config = config;
         this.http = builder.baseUrl(config.baseUrl() == null ? "" : config.baseUrl()).build();
+        this.rateLimiter = new RateLimiter(name(), config.requestsPerMinute());
         if (config.isUsable()) {
-            log.info("Market data provider '{}' enabled at {} (retries={}, backoff={})",
-                    name(), config.baseUrl(), config.retries(), config.retryBackoff());
+            log.info("Market data provider '{}' enabled at {} (retries={}, backoff={}, pacing={})",
+                    name(), config.baseUrl(), config.retries(), config.retryBackoff(),
+                    rateLimiter.isEnabled() ? config.requestsPerMinute() + "/min" : "off");
         } else {
             log.warn("Market data provider '{}' is NOT usable — enabled={}, apiKey={}, baseUrl={}. "
                             + "Calls to it will fail fast.",
@@ -62,10 +65,13 @@ public abstract class AbstractRestProvider implements MarketDataProvider {
 
         while (true) {
             attempt++;
+            // Pace before the call goes out: waiting is cheaper than being rejected with a 429.
+            long pacedFor = rateLimiter.acquire();
             long startedAt = System.nanoTime();
             try {
                 T result = call.get();
-                log.info("[{}] {} OK in {}ms{}", name(), what, millisSince(startedAt),
+                log.info("[{}] {} OK in {}ms{}{}", name(), what, millisSince(startedAt),
+                        pacedFor > 0 ? " (paced " + pacedFor + "ms)" : "",
                         attempt > 1 ? " (attempt " + attempt + ")" : "");
                 return result;
             } catch (RateLimitedException e) {

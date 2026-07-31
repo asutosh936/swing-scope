@@ -28,6 +28,7 @@ places the actual (paper) order in the broker.
 | 3 | Market data (Twelve Data primary, Finnhub secondary) | ✅ Done — DTOs curl-verified 2026-07-29 |
 | 4 | Auto-tiering & watchlist scan | ✅ Done |
 | 5 | Trade journal + scorecard + graduation tracker | ✅ Done — optional Spring AI (5.9/5.10) skipped |
+| 6 | Suggested stop/target levels from price structure | ✅ Done — backtest harness (6A) still to build |
 
 Full task breakdown: [swing-trade-assistant-implementation-plan.md](swing-trade-assistant-implementation-plan.md).
 
@@ -168,7 +169,33 @@ Every row carries a short plain reason — `below the 50-EMA`, `up 9.3% today �
 `earnings in 2 days`, `trend intact but thin — 420,000 avg shares/day vs 1,000,000 needed` — so a tier is
 never a black box.
 
-### 3. Plan a trade from a row
+### 3. Plan a trade from a row — now with suggested levels
+
+Tier 1 and Tier 2 rows have a **Plan this trade** link. It opens the calculator with the ticker and
+entry pre-filled from the current price, **and proposes a stop and a target** computed from support
+and resistance in the daily candles:
+
+- **Stop** = nearest support zone below, minus `0.5 × ATR` — below the shelf rather than at it, so
+  ordinary noise doesn't trigger it.
+- **Target** = the *near edge* of the nearest resistance above, matching the "take profit into
+  resistance" rule.
+
+Each comes with its evidence ("support at 38.31–38.55, 3 touches, last tested 12 bars ago"), a
+confidence pill, and an inline chart with the zones shaded so you can check the reasoning in seconds.
+
+**A refusal is a real answer.** With too little history, no confirmed pivot, or a stop wider than
+15%, the tool says so and leaves the field blank rather than inventing a number. **Clear and set
+them myself** reloads with suggestions off.
+
+The journal records where the levels came from — `HUMAN`, `SUGGESTED` or `EDITED` — and
+`/api/journal/stats` breaks the scorecard down by source, so after enough closed trades you can see
+whether the computed levels actually beat your own.
+
+⚠️ **These thresholds are unmeasured.** Support and resistance are not objective; a different pivot
+setting gives different levels. The Phase 6A backtest harness exists to replace each default with a
+number that earned its place. Until then, treat every suggestion as a starting point.
+
+### 3b. Or set the levels yourself
 
 Tier 1 and Tier 2 rows have a **Plan this trade** link. It opens the calculator with the ticker and
 **entry pre-filled from the current price**, and stop and target deliberately blank.
@@ -478,6 +505,7 @@ Everything is served under the `/swing-scope` context path (`server.servlet.cont
 | `/swing-scope/api/journal/{id}` | GET | One entry as JSON |
 | **Market data** — `MarketDataController` | | |
 | `/swing-scope/api/marketdata/{symbol}` | GET | Combined snapshot: price, EMAs, cap, earnings |
+| `/swing-scope/api/marketdata/{symbol}/levels` | GET | Suggested stop/target from price structure |
 | `/swing-scope/api/marketdata/search?q=` | GET | Ticker lookup |
 | `/swing-scope/api/marketdata/status` | GET | Is the US market open |
 | **Tools** | | |

@@ -64,6 +64,7 @@ class OpenApiDocumentationTest {
         assertThat(paths.fieldNames()).toIterable().containsExactlyInAnyOrder(
                 "/api/analyze",
                 "/api/marketdata/{symbol}",
+                "/api/marketdata/{symbol}/levels",
                 "/api/marketdata/search",
                 "/api/marketdata/status",
                 "/api/scan",

@@ -254,12 +254,40 @@ public class TradeJournalService {
 
         JournalStats stats = new JournalStats(all.size(), openTrades, closedCount, wins, losses,
                 scratches, noFills, rejected, winRate, netPnl, expectancy, averageWin, averageLoss,
-                losersWithRulesFollowed, GRADUATION_TARGET, graduationPercent, graduationMet);
+                losersWithRulesFollowed, GRADUATION_TARGET, graduationPercent, graduationMet,
+                breakdownByLevelSource(counted));
 
         log.debug("Scorecard: {} closed ({}W/{}L), winRate={}%, net={}, expectancy={}, graduation {}%{}",
                 closedCount, wins, losses, winRate, netPnl, expectancy, graduationPercent,
                 graduationMet ? " — MET" : "");
         return stats;
+    }
+
+    /** Closed-trade performance grouped by where the stop and target came from (Phase 6.6). */
+    private static List<JournalStats.SourceBreakdown> breakdownByLevelSource(
+            List<TradeJournalEntry> counted) {
+        List<JournalStats.SourceBreakdown> breakdown = new java.util.ArrayList<>();
+        for (com.swingscope.domain.journal.LevelSource source
+                : com.swingscope.domain.journal.LevelSource.values()) {
+            List<TradeJournalEntry> group = counted.stream()
+                    .filter(e -> e.getLevelSource() == source)
+                    .toList();
+            if (group.isEmpty()) {
+                continue;
+            }
+            long wins = group.stream().filter(e -> e.getStatus() == TradeStatus.CLOSED_WIN).count();
+            BigDecimal net = group.stream()
+                    .map(TradeJournalEntry::getRealizedPnl)
+                    .filter(java.util.Objects::nonNull)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add)
+                    .setScale(2, RoundingMode.HALF_UP);
+            BigDecimal rate = BigDecimal.valueOf(wins).multiply(ONE_HUNDRED)
+                    .divide(BigDecimal.valueOf(group.size()), 1, RoundingMode.HALF_UP);
+            BigDecimal exp = net.divide(BigDecimal.valueOf(group.size()), 2, RoundingMode.HALF_UP);
+            breakdown.add(new JournalStats.SourceBreakdown(
+                    source, group.size(), wins, rate, net, exp));
+        }
+        return breakdown;
     }
 
     private static BigDecimal average(List<TradeJournalEntry> counted, TradeStatus status, long n) {

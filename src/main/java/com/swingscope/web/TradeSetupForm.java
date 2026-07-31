@@ -35,6 +35,15 @@ public class TradeSetupForm {
     @Positive(message = "account size must be greater than 0")
     private BigDecimal accountSize;
 
+    /**
+     * What the level engine proposed, carried through the round-trip so the journal can record
+     * whether the human accepted it, changed it, or never had a suggestion at all (Phase 6.6).
+     * Never used in the sizing math.
+     */
+    private BigDecimal suggestedStop;
+
+    private BigDecimal suggestedTarget;
+
     @NotNull(message = "risk $ is required")
     @Positive(message = "risk $ must be greater than 0")
     private BigDecimal riskAmount;
@@ -81,6 +90,22 @@ public class TradeSetupForm {
 
     public void setAccountSize(BigDecimal accountSize) {
         this.accountSize = accountSize;
+    }
+
+    public BigDecimal getSuggestedStop() {
+        return suggestedStop;
+    }
+
+    public void setSuggestedStop(BigDecimal suggestedStop) {
+        this.suggestedStop = suggestedStop;
+    }
+
+    public BigDecimal getSuggestedTarget() {
+        return suggestedTarget;
+    }
+
+    public void setSuggestedTarget(BigDecimal suggestedTarget) {
+        this.suggestedTarget = suggestedTarget;
     }
 
     public BigDecimal getRiskAmount() {

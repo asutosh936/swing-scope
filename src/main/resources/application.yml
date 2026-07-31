@@ -71,6 +71,18 @@ springdoc:
     display-request-duration: true
   paths-to-match: /api/**
 
+# Phase 6 — suggested stop/target levels.
+# NOTE: these defaults are guesses until the Phase 6A backtest harness measures them.
+levels:
+  pivot-strength: 3               # bars either side needed to confirm a pivot
+  atr-period: 14
+  zone-tolerance-atr-multiple: 0.5  # pivots within 0.5×ATR collapse into one zone
+  stop-buffer-atr-multiple: 0.5     # stop sits this far below support
+  min-touches: 2                  # pivots a zone needs to count as a level
+  max-stop-percent: 15            # refuse a stop wider than this
+  min-bars-for-suggestion: 60     # below this much history, refuse rather than guess
+  lookback-bars: 250
+
 logging:
   level:
     root: INFO

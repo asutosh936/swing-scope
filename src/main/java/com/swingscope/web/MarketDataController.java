@@ -3,7 +3,9 @@ package com.swingscope.web;
 import com.swingscope.config.OpenApiConfig;
 import com.swingscope.domain.marketdata.MarketSnapshot;
 import com.swingscope.domain.marketdata.MarketStatus;
+import com.swingscope.domain.levels.LevelAnalysis;
 import com.swingscope.domain.marketdata.SymbolMatch;
+import com.swingscope.service.levels.LevelSuggestionService;
 import com.swingscope.service.marketdata.MarketDataService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -33,9 +35,42 @@ public class MarketDataController {
     private static final Logger log = LoggerFactory.getLogger(MarketDataController.class);
 
     private final MarketDataService marketData;
+    private final LevelSuggestionService levels;
 
-    public MarketDataController(MarketDataService marketData) {
+    public MarketDataController(MarketDataService marketData, LevelSuggestionService levels) {
         this.marketData = marketData;
+        this.levels = levels;
+    }
+
+    @Operation(
+            summary = "Suggested stop and target levels for one symbol",
+            description = """
+                    Computes support and resistance **zones** from the daily candles already cached                     for this symbol, then proposes a stop and a target. Costs no extra provider call                     when the symbol has been scanned recently.
+
+                    * **Stop** = nearest support zone below, minus `stopBuffer × ATR` — below the                     shelf rather than at it, so ordinary noise does not trigger it.
+                    * **Target** = the *near edge* of the nearest resistance above: take profit into                     resistance rather than through it.
+
+                    **A refusal is a real answer.** When there is no clean structure — too little                     history, no confirmed pivot, or a stop wider than the configured limit — the                     `value` is null and `rationale` says why. The service will not fall back to an                     arbitrary number dressed as a formula.
+
+                    Every figure is arithmetic over past price. It is **not** a recommendation to                     trade, and `unconfirmedTailBars` tells you how many recent bars are still too                     new to have formed a pivot.
+                    """)
+    @ApiResponses({
+            @ApiResponse(responseCode = "200",
+                    description = "Analysis complete. `stop`/`target` may each be a refusal.",
+                    content = @Content(schema = @Schema(implementation = LevelAnalysis.class))),
+            @ApiResponse(responseCode = "404", description = "No provider has data for this ticker.",
+                    content = @Content),
+            @ApiResponse(responseCode = "429", description = "Provider rate limit exhausted.",
+                    content = @Content),
+            @ApiResponse(responseCode = "503", description = "No provider configured for candles.",
+                    content = @Content)
+    })
+    @GetMapping("/{symbol}/levels")
+    public ResponseEntity<LevelAnalysis> levels(
+            @Parameter(description = "Ticker symbol; case-insensitive.", example = "AAPL")
+            @PathVariable String symbol) {
+        log.info("GET /api/marketdata/{}/levels", symbol);
+        return ResponseEntity.ok(levels.suggest(symbol));
     }
 
     @Operation(

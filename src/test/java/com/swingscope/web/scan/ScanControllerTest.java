@@ -202,13 +202,20 @@ class ScanControllerTest {
                         .flash().attributeExists("error"));
     }
 
-    /** Task 4.4 — entry comes from the scan; stop and target stay blank on purpose. */
+    /**
+     * Task 4.4 + 6.7 — entry comes from the scan. Stop and target are now *proposed* from price
+     * structure, so this asserts the opt-out path still leaves them blank: `suggestLevels=false`
+     * is the "let me read the chart myself" route, and it must keep working.
+     */
     @Test
-    void planThisTradePrefillsEntryButNotStopOrTarget() throws Exception {
-        MvcResult result = mockMvc.perform(get("/plan").param("ticker", "aapl").param("entry", "40.00"))
+    void planThisTradeWithoutSuggestionsLeavesStopAndTargetBlank() throws Exception {
+        MvcResult result = mockMvc.perform(get("/plan")
+                        .param("ticker", "aapl").param("entry", "40.00")
+                        .param("suggestLevels", "false"))
                 .andExpect(status().isOk())
                 .andExpect(view().name("calculator"))
                 .andExpect(model().attribute("prefilled", true))
+                .andExpect(model().attributeDoesNotExist("levels"))
                 .andReturn();
 
         com.swingscope.web.TradeSetupForm form =
@@ -217,6 +224,8 @@ class ScanControllerTest {
         assertThat(form.getEntry()).isEqualByComparingTo("40.00");
         assertThat(form.getStop()).isNull();
         assertThat(form.getTarget()).isNull();
+        assertThat(form.getSuggestedStop()).isNull();
+        assertThat(form.getSuggestedTarget()).isNull();
         assertThat(form.getAccountSize()).isEqualByComparingTo("500");
         assertThat(form.getRiskAmount()).isEqualByComparingTo("5.00");
 
@@ -224,6 +233,31 @@ class ScanControllerTest {
                 .contains("pre-filled from the scan")
                 .contains("no API can give you");
     }
+
+    /**
+     * With suggestions on but no candle data behind the mock, the engine must **refuse** rather
+     * than invent levels — and the page must still render and stay usable.
+     */
+    @Test
+    void planThisTradeRefusesLevelsWhenThereIsNoCandleData() throws Exception {
+        MvcResult result = mockMvc.perform(get("/plan").param("ticker", "aapl").param("entry", "40.00"))
+                .andExpect(status().isOk())
+                .andExpect(view().name("calculator"))
+                .andExpect(model().attributeExists("levels"))
+                .andReturn();
+
+        com.swingscope.domain.levels.LevelAnalysis levels =
+                (com.swingscope.domain.levels.LevelAnalysis) result.getModelAndView().getModel().get("levels");
+        assertThat(levels.stop().isPresent()).isFalse();
+        assertThat(levels.target().isPresent()).isFalse();
+
+        com.swingscope.web.TradeSetupForm form =
+                (com.swingscope.web.TradeSetupForm) result.getModelAndView().getModel().get("form");
+        assertThat(form.getStop()).as("a refusal must not prefill anything").isNull();
+        assertThat(form.getSuggestedStop()).isNull();
+    }
+
+
 
     @Test
     @DisplayName("watchlist writes live on the UI only — the JSON write endpoints are gone")

@@ -2,6 +2,7 @@ package com.swingscope.web;
 
 import com.swingscope.config.OpenApiConfig;
 import com.swingscope.config.TradingRules;
+import com.swingscope.domain.journal.LevelSource;
 import com.swingscope.domain.journal.SetupType;
 import com.swingscope.domain.journal.TradeJournalEntry;
 import com.swingscope.domain.TradeAnalysis;
@@ -87,8 +88,11 @@ public class CalculatorController {
                                         @RequestParam(required = false) SetupType setupType,
                                         @RequestParam(defaultValue = "true") boolean pass,
                                         @RequestParam(required = false) String reason,
+                                        @RequestParam(required = false) BigDecimal suggestedStop,
+                                        @RequestParam(required = false) BigDecimal suggestedTarget,
                                         RedirectAttributes redirect) {
         String symbol = ticker.trim().toUpperCase();
+        LevelSource levelSource = provenanceOf(stop, target, suggestedStop, suggestedTarget);
 
         // A PASS becomes a plan to act on; a FAIL becomes a record that the rules said no.
         TradeJournalEntry saved = journal.create(pass
@@ -96,14 +100,40 @@ public class CalculatorController {
                 : TradeJournalEntry.rejected(symbol, setupType, entry, stop, target, ratio,
                         shares, riskAmount, reason));
 
-        log.info("Calculator result for {} journalled as {} entry #{}",
-                symbol, saved.getStatus(), saved.getId());
+        saved.setLevelSource(levelSource);
+        log.info("Calculator result for {} journalled as {} entry #{} (levels: {})",
+                symbol, saved.getStatus(), saved.getId(), levelSource);
         redirect.addFlashAttribute("flash", pass
                 ? "Planned trade #%d logged for %s. Update it when it fills."
                         .formatted(saved.getId(), symbol)
                 : "Saved #%d for %s as rejected — it stays out of your win rate and expectancy."
                         .formatted(saved.getId(), symbol));
         return "redirect:/journal/" + saved.getId();
+    }
+
+    /**
+     * Phase 6.6 — where did the levels come from?
+     *
+     * <p>Any difference from what was proposed counts as EDITED, down to a cent: adjusting a level
+     * is a decision, and lumping small tweaks in with untouched suggestions would blur exactly the
+     * comparison this field exists to make.
+     */
+    static LevelSource provenanceOf(BigDecimal stop, BigDecimal target,
+                                    BigDecimal suggestedStop, BigDecimal suggestedTarget) {
+        if (suggestedStop == null && suggestedTarget == null) {
+            return LevelSource.HUMAN;
+        }
+        boolean stopUntouched = matches(stop, suggestedStop);
+        boolean targetUntouched = matches(target, suggestedTarget);
+        return stopUntouched && targetUntouched ? LevelSource.SUGGESTED : LevelSource.EDITED;
+    }
+
+    /** A suggestion that was never made cannot have been altered. */
+    private static boolean matches(BigDecimal actual, BigDecimal suggested) {
+        if (suggested == null) {
+            return true;
+        }
+        return actual != null && actual.compareTo(suggested) == 0;
     }
 
     @GetMapping("/")

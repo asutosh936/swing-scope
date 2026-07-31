@@ -33,12 +33,29 @@ public record JournalStats(
         long losersWithRulesFollowed,
         int graduationTarget,
         BigDecimal graduationPercent,
-        boolean graduationMet
+        boolean graduationMet,
+        java.util.List<SourceBreakdown> byLevelSource
 ) {
+
+    /**
+     * Closed-trade performance split by where the levels came from — the Phase 6 feedback loop.
+     *
+     * <p>Reads as noise until there are a couple of dozen closed trades in each bucket. It is here
+     * so the question is <em>answerable later</em>, not so it can be answered on trade three.
+     */
+    public record SourceBreakdown(
+            LevelSource source,
+            long closedCount,
+            long wins,
+            BigDecimal winRate,
+            BigDecimal netPnl,
+            BigDecimal expectancy
+    ) {
+    }
 
     public static JournalStats empty(int graduationTarget) {
         return new JournalStats(0, 0, 0, 0, 0, 0, 0, 0,
                 BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
-                0, graduationTarget, BigDecimal.ZERO, false);
+                0, graduationTarget, BigDecimal.ZERO, false, java.util.List.of());
     }
 }

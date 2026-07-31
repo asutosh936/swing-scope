@@ -85,6 +85,11 @@ public class TradeJournalEntry {
 
     private Boolean rulesFollowed;
 
+    /** Phase 6 provenance: were the stop and target suggested, adjusted, or set by hand? */
+    @Enumerated(EnumType.STRING)
+    @Column(length = 20)
+    private LevelSource levelSource = LevelSource.HUMAN;
+
     protected TradeJournalEntry() {
         // for JPA
     }
@@ -270,6 +275,14 @@ public class TradeJournalEntry {
 
     public void setLessonText(String lessonText) {
         this.lessonText = lessonText;
+    }
+
+    public LevelSource getLevelSource() {
+        return levelSource;
+    }
+
+    public void setLevelSource(LevelSource levelSource) {
+        this.levelSource = levelSource;
     }
 
     public Boolean getRulesFollowed() {

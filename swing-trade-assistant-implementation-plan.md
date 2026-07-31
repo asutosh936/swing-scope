@@ -114,19 +114,19 @@ Status legend: ☐ Not started · ◐ In progress · ☑ Done
 | | 5.8 | "Plan this trade" → auto-creates a PLANNED journal entry | ☑ |
 | | 5.9 | (optional) Spring AI news-summary endpoint | ☐ deferred |
 | | 5.10 | (optional) Spring AI journal-narrative endpoint | ☐ deferred |
-| **6 — Suggested Levels** | 6.1 | `SwingPointDetector` (fractal pivots) | ☐ |
-| | 6.2 | `AtrCalculator` (ATR-14) | ☐ |
-| | 6.3 | `PriceLevelService` — cluster pivots into scored zones | ☐ |
-| | 6.4 | `LevelSuggestionService` — stop/target candidates + rationale | ☐ |
-| | 6.5 | Refusal guards (too few bars, no pivot, stop too wide) | ☐ |
-| | 6.6 | Journal `levelSource` provenance + scorecard breakdown | ☐ |
-| | 6.7 | `GET /api/levels/{symbol}` + suggested prefill in `/plan` | ☐ |
-| | 6.8 | Inline SVG level chart on the calculator | ☐ |
-| | 6.9 | `LevelProperties` — all thresholds configurable | ☐ |
-| **6A — Backtest harness** | 6A.1 | Backtest result records (R-based metrics) | ☐ |
-| | 6A.2 | `LevelBacktestService.replay()` — walk-forward, no lookahead | ☐ |
-| | 6A.3 | Conservative resolvers (intrabar → stop, gap → fill at open) | ☐ |
-| | 6A.4 | **Lookahead-bias test** | ☐ |
+| **6 — Suggested Levels** | 6.1 | `SwingPointDetector` (fractal pivots) | ☑ |
+| | 6.2 | `AtrCalculator` (ATR-14) | ☑ |
+| | 6.3 | `PriceLevelService` — cluster pivots into scored zones | ☑ |
+| | 6.4 | `LevelSuggestionService` — stop/target candidates + rationale | ☑ |
+| | 6.5 | Refusal guards (too few bars, no pivot, stop too wide) | ☑ |
+| | 6.6 | Journal `levelSource` provenance + scorecard breakdown | ☑ |
+| | 6.7 | `GET /api/levels/{symbol}` + suggested prefill in `/plan` | ☑ |
+| | 6.8 | Inline SVG level chart on the calculator | ☑ |
+| | 6.9 | `LevelProperties` — all thresholds configurable | ☑ |
+| **6A — Backtest harness** | 6A.1 | Backtest result records (R-based metrics) | ☑ |
+| | 6A.2 | `LevelBacktestService.replay()` — walk-forward, no lookahead | ☑ |
+| | 6A.3 | Conservative resolvers (intrabar → stop, gap → fill at open) | ☑ |
+| | 6A.4 | **Lookahead-bias test** | ☑ |
 | | 6A.5 | `ParameterSweep` ranked by out-of-sample expectancy | ☐ |
 | | 6A.6 | In-sample / out-of-sample split, both reported | ☐ |
 | | 6A.7 | `POST /api/backtest` + results page with caveats on-screen | ☐ |
@@ -390,6 +390,18 @@ Position size varies, so results are reported in risk multiples: a target hit at
 | 6A.7 | `POST /api/backtest` + a results page: per-symbol and aggregate, with the caveats printed on the page, not buried in docs |
 | 6A.8 | Wire the winning parameters into `LevelProperties` defaults — recording the date, sample size and out-of-sample expectancy that justified them |
 
+#### Progress — 6A.1–6A.4 done (2026-07-30)
+**304 tests green.** `LevelBacktestService.replay(symbol, bars, settings)` walks the series forward; `replayOne` is package-visible so a single entry can be asserted in isolation.
+
+Two things the tests forced that were not in the original design:
+
+1. **`INCOMPLETE` — censored observations.** The tail of every series produces entries whose walk-forward is cut short by the data ending, not by the time stop elapsing. Scoring those as `TIMEOUT` would understate both winners and losers. They are now counted separately and excluded from every metric. This surfaced when a trade resolved as TIMEOUT on a short series and STOP_FIRST on a longer one — *not* leakage, but it would have quietly biased every report.
+2. **Unresolved trades keep their levels.** `NOT_TAKEABLE` and `INCOMPLETE` entries retain the stop and target that were computed, rather than discarding them. They were real engine output; throwing them away loses the audit trail and breaks the no-lookahead invariant assertion.
+
+`NOT_TAKEABLE` covers a setup whose fill gapped to or through the stop before entry — no risk distance, so no trade, and inventing a loss there would be fiction.
+
+Still pending: **6A.5–6A.8** (parameter sweep, in/out-of-sample split, endpoint + report page, adopting winners). Those need an API key and the three open decisions — entry rule is already a parameter (`NEXT_OPEN` default), universe and time stop are not.
+
 #### Data budget
 Candles are already cached per scanned symbol (250 bars ≈ 1 trading year), so a backtest over your watchlist costs **1 provider call per uncached symbol** and nothing for the rest. 250 bars yields roughly 200 walk-forward entries per symbol — thin for one name, reasonable across 20.
 
@@ -398,6 +410,30 @@ Candles are already cached per scanned symbol (250 bars ≈ 1 trading year), so 
 #### Success criteria — agree these before tuning
 A parameter set is adopted only if, **out-of-sample**: expectancy is positive in R, the no-suggestion rate stays under ~40% (or the feature rarely helps), and it beats the naive baseline of *stop = entry − 2×ATR, target = entry + 2×risk*. **If nothing beats the naive baseline, that is the finding** — ship the baseline, or ship nothing, and keep setting levels by hand.
 
+
+### Progress — Phase 6 complete, 6.1–6.9 (2026-07-30)
+**290 tests green, coverage gate passing.** The endpoint shipped as `GET /api/marketdata/{symbol}/levels` rather than `/api/levels/{symbol}` — levels are market-derived, so they belong with the other market-data routes rather than in a fourth namespace.
+
+Decisions taken on the four questions the plan left open:
+- **Prefill, visibly marked.** Stop and target arrive filled in with a `suggested` tag, the rationale beside them, a chart, and a "Clear and set them myself" link that reloads with `suggestLevels=false`. That opt-out path is covered by its own test — it is the Phase 1–5 workflow and must keep working.
+- **Structure-only stops.** No ATR fallback. When there is no clean shelf the engine refuses; an arbitrary distance wearing a formula is harder to argue with than a blank field, and therefore more dangerous.
+- **Target = near edge of the nearest resistance**, not its centre, matching the existing "take profit into resistance" management rule.
+- **Any change counts as EDITED**, down to a cent. Clearing a suggested level is also an edit.
+
+Notes for 6A:
+- `LevelSuggestionService.analyse(symbol, bars, price)` is the **pure** entry point — no I/O — so the backtest can hand it a historical sublist. `suggest(symbol)` is the thin fetching wrapper. Both are covered by no-lookahead tests.
+- Every threshold in `LevelProperties` is still a **guess**. 6A exists to replace them with measured values; until then the UI says so in the caveat under the chart.
+
+### Progress — 6.1 and 6.2 done (2026-07-30)
+Both are pure functions on `List<Candle>`, no Spring wiring beyond `@Component`, 100% instruction and branch coverage, 18 hand-checked tests.
+
+Decisions baked in, worth knowing before 6.3 builds on them:
+- **Strict inequality both sides.** A flat double bottom at an identical low registers as *no* pivot rather than two. An ambiguous turn is not a turn — and it keeps 6.3's clustering from double-counting a single shelf.
+- **The last `strength` bars are never confirmed.** A pivot needs bars to its right, so with strength 3 the newest 3 bars cannot produce one. This is not a gap to patch: a level only visible in hindsight was never tradeable. `SwingPointDetector.unconfirmedTailBars()` exists so the UI can say so.
+- **`SwingPoint.barIndex` is retained** specifically so 6A.4 can prove no pivot at or after the entry bar was used.
+- **Both detectors read only the list handed to them**, so passing a sublist ending at the entry bar is sufficient for no-lookahead. Asserted in both test classes.
+- **ATR uses Wilder smoothing** (seed = SMA of first `period` true ranges, then `(prev × (n−1) + tr) ÷ n`), matching charting platforms — the same reasoning as `EmaCalculator`, so the numbers agree with what the user sees. First bar's true range is a bare high−low, as it has no previous close.
+- **Null, never a guess, on short history** — ATR needs `period + 1` bars.
 
 ### Known limitations — state these in the UI, not just here
 - **Support/resistance is not objective.** Different pivot strengths give different levels. The output will look authoritative and is not; it is one defensible reading among several.

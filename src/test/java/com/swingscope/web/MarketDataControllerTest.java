@@ -29,17 +29,19 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class MarketDataControllerTest {
 
     private MarketDataService service;
+    private com.swingscope.service.levels.LevelSuggestionService levelSuggestions;
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
         service = mock(MarketDataService.class);
+        levelSuggestions = mock(com.swingscope.service.levels.LevelSuggestionService.class);
         // Mirror Boot's JSON defaults so dates serialise as ISO strings, not [2026,10,30] arrays.
         var objectMapper = com.fasterxml.jackson.databind.json.JsonMapper.builder()
                 .addModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule())
                 .disable(com.fasterxml.jackson.databind.SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
                 .build();
-        mockMvc = MockMvcBuilders.standaloneSetup(new MarketDataController(service))
+        mockMvc = MockMvcBuilders.standaloneSetup(new MarketDataController(service, levelSuggestions))
                 .setControllerAdvice(new ApiExceptionHandler())
                 .setMessageConverters(
                         new org.springframework.http.converter.json.MappingJackson2HttpMessageConverter(objectMapper))

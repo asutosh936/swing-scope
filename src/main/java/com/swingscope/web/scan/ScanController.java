@@ -1,6 +1,11 @@
 package com.swingscope.web.scan;
 
 import com.swingscope.config.TradingRules;
+import com.swingscope.domain.levels.LevelAnalysis;
+import com.swingscope.service.levels.LevelChartRenderer;
+import com.swingscope.service.levels.LevelSuggestionService;
+import com.swingscope.service.marketdata.MarketDataException;
+import com.swingscope.service.marketdata.MarketDataService;
 import com.swingscope.service.scan.TierService;
 import com.swingscope.service.scan.WatchlistService;
 import org.slf4j.Logger;
@@ -44,11 +49,19 @@ public class ScanController {
     private final TierService tierService;
     private final WatchlistService watchlist;
     private final TradingRules rules;
+    private final LevelSuggestionService levelSuggestions;
+    private final LevelChartRenderer chartRenderer;
+    private final MarketDataService marketData;
 
-    public ScanController(TierService tierService, WatchlistService watchlist, TradingRules rules) {
+    public ScanController(TierService tierService, WatchlistService watchlist, TradingRules rules,
+                          LevelSuggestionService levelSuggestions, LevelChartRenderer chartRenderer,
+                          MarketDataService marketData) {
         this.tierService = tierService;
         this.watchlist = watchlist;
         this.rules = rules;
+        this.levelSuggestions = levelSuggestions;
+        this.chartRenderer = chartRenderer;
+        this.marketData = marketData;
     }
 
     @GetMapping("/scan")
@@ -116,13 +129,46 @@ public class ScanController {
     @GetMapping("/plan")
     public String planTrade(@RequestParam String ticker,
                             @RequestParam(required = false) java.math.BigDecimal entry,
+                            @RequestParam(defaultValue = "true") boolean suggestLevels,
                             Model model) {
-        log.info("Pre-filling the calculator for {} at {}", ticker, entry);
+        String symbol = ticker == null ? null : ticker.trim().toUpperCase();
+        log.info("Pre-filling the calculator for {} at {} (suggestLevels={})", symbol, entry, suggestLevels);
+
         com.swingscope.web.TradeSetupForm form = new com.swingscope.web.TradeSetupForm();
-        form.setTicker(ticker == null ? null : ticker.trim().toUpperCase());
+        form.setTicker(symbol);
         form.setEntry(entry);
         form.setAccountSize(rules.defaultAccountSize());
         form.setRiskAmount(rules.defaultRiskAmount());
+
+        if (suggestLevels && symbol != null) {
+            // Phase 6: propose stop and target from structure. A failure here must never block the
+            // calculator — the human can always type the two numbers, which is the Phase 1-5 flow.
+            try {
+                LevelAnalysis analysis = levelSuggestions.suggest(symbol);
+                if (analysis.stop().isPresent()) {
+                    form.setStop(analysis.stop().value());
+                    form.setSuggestedStop(analysis.stop().value());
+                }
+                if (analysis.target().isPresent()) {
+                    form.setTarget(analysis.target().value());
+                    form.setSuggestedTarget(analysis.target().value());
+                }
+                model.addAttribute("levels", analysis);
+
+                // Cached from the suggestion call above, so this is free. A chart is only worth
+                // drawing when there are bars behind it.
+                com.swingscope.domain.marketdata.Candles candles =
+                        marketData.getDailyCandles(symbol, 250);
+                if (candles != null && !candles.isEmpty()) {
+                    model.addAttribute("levelChart", chartRenderer.render(analysis, candles.bars()));
+                }
+            } catch (MarketDataException e) {
+                log.warn("No level suggestions for {} — {}", symbol, e.getMessage());
+                model.addAttribute("levelError",
+                        "Could not compute levels (" + e.getMessage() + "). Set stop and target yourself.");
+            }
+        }
+
         model.addAttribute("form", form);
         model.addAttribute("prefilled", true);
         return "calculator";

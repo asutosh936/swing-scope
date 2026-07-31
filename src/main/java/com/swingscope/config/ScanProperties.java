@@ -13,12 +13,16 @@ import java.math.BigDecimal;
  * @param tier1MinVolume     average daily volume for Tier 1
  * @param tier1MinMarketCapMillions market cap for Tier 1, in millions
  * @param maxTickersPerScan  guard against pasting a list so long the scan runs for an hour
+ * @param historyRetentionDays how long a stored scan is kept before the weekly purge removes it.
+ *                             Scans go stale fast — the prices in them are a snapshot — so this is
+ *                             about keeping a usable trail, not an archive
  */
 @ConfigurationProperties(prefix = "scan")
 public record ScanProperties(
         Long tier1MinVolume,
         BigDecimal tier1MinMarketCapMillions,
-        Integer maxTickersPerScan
+        Integer maxTickersPerScan,
+        Integer historyRetentionDays
 ) {
 
     public ScanProperties {
@@ -30,6 +34,9 @@ public record ScanProperties(
         }
         if (maxTickersPerScan == null) {
             maxTickersPerScan = 30;
+        }
+        if (historyRetentionDays == null) {
+            historyRetentionDays = 30;
         }
     }
 }

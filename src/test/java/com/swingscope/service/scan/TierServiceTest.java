@@ -39,7 +39,7 @@ class TierServiceTest {
     @BeforeEach
     void setUp() {
         marketData = mock(MarketDataService.class);
-        tierService = new TierService(marketData, new ScanProperties(null, null, null));
+        tierService = new TierService(marketData, new ScanProperties(null, null, null, null));
 
         when(marketData.getSnapshot(anyString(), anyBoolean())).thenAnswer(inv -> {
             String symbol = inv.getArgument(0);
@@ -288,7 +288,7 @@ class TierServiceTest {
     @Test
     @DisplayName("an over-long list is truncated with a warning rather than running for an hour")
     void scanRespectsTheBatchCeiling() {
-        TierService limited = new TierService(marketData, new ScanProperties(null, null, 2));
+        TierService limited = new TierService(marketData, new ScanProperties(null, null, 2, null));
         given("A", snapshot("A", "40.00", "1.0", true, 5_000_000L, "3000000", null));
         given("B", snapshot("B", "40.00", "1.0", true, 5_000_000L, "3000000", null));
         given("C", snapshot("C", "40.00", "1.0", true, 5_000_000L, "3000000", null));

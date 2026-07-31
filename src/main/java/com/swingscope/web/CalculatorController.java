@@ -150,7 +150,9 @@ public class CalculatorController {
     @PostMapping("/analyze")
     public String analyze(@Valid @ModelAttribute("form") TradeSetupForm form,
                           BindingResult binding,
+                          @RequestParam(required = false) String scanId,
                           Model model) {
+        model.addAttribute("scanId", scanId);
         if (binding.hasErrors()) {
             log.warn("Calculator form rejected: {} field error(s) — {}",
                     binding.getErrorCount(), binding.getFieldErrors().stream()

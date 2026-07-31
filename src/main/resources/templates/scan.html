@@ -1,6 +1,9 @@
 <!DOCTYPE html>
 <html xmlns:th="http://www.thymeleaf.org">
-<head th:replace="~{fragments/layout :: head('scan')}"></head>
+<head th:replace="~{fragments/layout :: head('scan')}">
+</head>
+<!-- While a scan runs, the page reloads itself every 5s. No JavaScript involved. -->
+<meta th:if="${job != null and job.running}" http-equiv="refresh" content="5">
 <body>
 
 <header th:replace="~{fragments/layout :: masthead}"></header>
@@ -36,6 +39,33 @@
             A cold scan is paced to the provider's free-tier limit (8 calls/minute), so a 20-name
             list can take a few minutes the first time. Repeat scans come from cache and are instant.
         </p>
+    </section>
+
+    <!-- a scan in flight -->
+    <section class="card" th:if="${job != null and job.running}">
+        <div class="section-head">
+            <h2>Scanning…</h2>
+            <span class="muted" th:text="|${job.completed} of ${job.total} · ${job.elapsedSeconds}s elapsed|">
+                3 of 20</span>
+        </div>
+        <div class="bar">
+            <div class="bar-fill" th:style="'width:' + ${job.percent} + '%'"></div>
+        </div>
+        <p class="lede" style="margin-top:14px">
+            Currently fetching <strong th:text="${job.currentSymbol} ?: '…'">AAPL</strong>.
+            Roughly <strong th:text="${secondsRemaining}">120</strong> seconds left — the free tier
+            allows 8 calls a minute and each ticker costs two, so this is pacing, not hanging.
+        </p>
+        <p class="muted" style="font-size:0.82rem">
+            This page refreshes itself. You can leave and come back to
+            <code th:text="'/scan/' + ${job.id}">/scan/abc123</code> at any time; the scan keeps
+            running.
+        </p>
+    </section>
+
+    <section class="card" th:if="${job != null and job.status.name() == 'FAILED'}">
+        <h2>Scan failed</h2>
+        <p class="flash flash-error" th:text="${job.error}"></p>
     </section>
 
     <!-- results -->
@@ -119,7 +149,7 @@
                     <td class="muted" th:text="${s.reason}">trend intact</td>
                     <td>
                         <a th:if="${s.tier.tradeable}" class="button-link small"
-                           th:href="@{/plan(ticker=${s.symbol}, entry=${s.price})}"
+                           th:href="@{/plan(ticker=${s.symbol}, entry=${s.price}, scanId=${job != null} ? ${job.id} : null)}"
                            th:title="|Size a trade on ${s.symbol}: opens the calculator with entry pre-filled at ${s.price}|">
                             Plan this trade →</a>
                         <span th:unless="${s.tier.tradeable}" class="muted">—</span>
@@ -129,6 +159,27 @@
             </table>
         </section>
     </th:block>
+
+    <!-- recent scans: results stay addressable, so clicking into a trade never loses the list -->
+    <section class="card" th:if="${recentScans != null and !#lists.isEmpty(recentScans)}">
+        <div class="section-head">
+            <h3>Recent scans</h3>
+            <span class="muted" th:text="|last ${T(com.swingscope.service.scan.ScanJobService).MAX_RETAINED_JOBS} kept, cleared on restart|"></span>
+        </div>
+        <table class="journal-table">
+            <tbody>
+            <tr th:each="r : ${recentScans}">
+                <td><a th:href="@{/scan/{id}(id=${r.id})}" th:text="${r.id}">abc123</a></td>
+                <td class="muted" th:text="${#strings.abbreviate(#strings.listJoin(r.tickers, ', '), 60)}">VZ, AAPL</td>
+                <td>
+                    <span class="pill" th:classappend="${r.running} ? 'pill-planned' : 'pill-closed_win'"
+                          th:text="${r.running} ? 'running' : ${r.status}">running</span>
+                </td>
+                <td class="num muted" th:text="|${r.total} tickers|">20 tickers</td>
+            </tr>
+            </tbody>
+        </table>
+    </section>
 
     <!-- watchlist -->
     <section class="card">

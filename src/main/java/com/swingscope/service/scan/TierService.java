@@ -63,6 +63,16 @@ public class TierService {
     }
 
     public ScanResult scan(List<String> tickers) {
+        return scan(tickers, (symbol, done) -> { });
+    }
+
+    /** Reports each ticker as it finishes, so a background job can show progress. */
+    @FunctionalInterface
+    public interface ProgressListener {
+        void onTickerDone(String symbol, int completed);
+    }
+
+    public ScanResult scan(List<String> tickers, ProgressListener progress) {
         long startedAt = System.nanoTime();
         List<String> warnings = new ArrayList<>();
 
@@ -84,22 +94,14 @@ public class TierService {
         log.info("Scanning {} ticker(s): {}", unique.size(), unique);
 
         List<TieredStock> stocks = new ArrayList<>(unique.size());
+        int done = 0;
         for (String symbol : unique) {
             stocks.add(tierOne(symbol));
+            progress.onTickerDone(symbol, ++done);
         }
 
-        // Tier order first, then strongest trend within a tier.
-        stocks.sort(java.util.Comparator
-                .comparing((TieredStock s) -> s.tier().ordinal())
-                .thenComparing(s -> s.distanceToEma50Percent() == null
-                        ? BigDecimal.ZERO : s.distanceToEma50Percent(),
-                        java.util.Comparator.reverseOrder()));
-
-        Map<Tier, List<TieredStock>> byTier = stocks.stream()
-                .collect(Collectors.groupingBy(TieredStock::tier, LinkedHashMap::new, Collectors.toList()));
-
         long elapsed = (System.nanoTime() - startedAt) / 1_000_000;
-        ScanResult result = new ScanResult(stocks, byTier, unique.size(), elapsed, warnings);
+        ScanResult result = ScanResult.of(stocks, unique.size(), elapsed, warnings);
 
         log.info("Scan complete in {}ms — Tier1={} Tier2={} Tier3={} Skip={} Unavailable={}",
                 elapsed, result.count(Tier.TIER1), result.count(Tier.TIER2),

@@ -1,11 +1,14 @@
 package com.swingscope.web.scan;
 
+import com.swingscope.config.MarketDataProperties;
 import com.swingscope.config.TradingRules;
+import com.swingscope.domain.scan.ScanJob;
 import com.swingscope.domain.levels.LevelAnalysis;
 import com.swingscope.service.levels.LevelChartRenderer;
 import com.swingscope.service.levels.LevelSuggestionService;
 import com.swingscope.service.marketdata.MarketDataException;
 import com.swingscope.service.marketdata.MarketDataService;
+import com.swingscope.service.scan.ScanJobService;
 import com.swingscope.service.scan.TierService;
 import com.swingscope.service.scan.WatchlistService;
 import org.slf4j.Logger;
@@ -52,50 +55,83 @@ public class ScanController {
     private final LevelSuggestionService levelSuggestions;
     private final LevelChartRenderer chartRenderer;
     private final MarketDataService marketData;
+    private final ScanJobService scanJobs;
+    private final int twelveDataCallsPerMinute;
 
     public ScanController(TierService tierService, WatchlistService watchlist, TradingRules rules,
                           LevelSuggestionService levelSuggestions, LevelChartRenderer chartRenderer,
-                          MarketDataService marketData) {
+                          MarketDataService marketData, ScanJobService scanJobs,
+                          MarketDataProperties marketDataProperties) {
         this.tierService = tierService;
         this.watchlist = watchlist;
         this.rules = rules;
         this.levelSuggestions = levelSuggestions;
         this.chartRenderer = chartRenderer;
         this.marketData = marketData;
+        this.scanJobs = scanJobs;
+        this.twelveDataCallsPerMinute = marketDataProperties.twelvedata().requestsPerMinute();
     }
 
     @GetMapping("/scan")
     public String form(Model model) {
         model.addAttribute("watchlist", watchlist.findAll());
+        model.addAttribute("recentScans", scanJobs.recent());
         return "scan";
     }
 
+    /**
+     * Starts a scan and redirects to its own page. Deliberately does <em>not</em> wait: pacing 20
+     * tickers past the free tier's 8 calls a minute takes about five minutes, which no browser or
+     * proxy will sit through.
+     */
     @PostMapping("/scan")
-    public String scan(@RequestParam(required = false) String tickers, Model model) {
+    public String scan(@RequestParam(required = false) String tickers, RedirectAttributes redirect) {
         List<String> parsed = TierService.parseTickers(tickers);
         if (parsed.isEmpty()) {
-            model.addAttribute("error", "Paste at least one ticker.");
-            model.addAttribute("watchlist", watchlist.findAll());
-            return "scan";
+            redirect.addFlashAttribute("error", "Paste at least one ticker.");
+            return "redirect:/scan";
         }
-        log.info("Scanning {} pasted ticker(s) from the UI", parsed.size());
-        model.addAttribute("result", tierService.scan(parsed));
-        model.addAttribute("pasted", tickers);
-        model.addAttribute("watchlist", watchlist.findAll());
-        return "scan";
+        ScanJob job = scanJobs.submit(parsed);
+        log.info("Scan job {} started for {} pasted ticker(s)", job.getId(), parsed.size());
+        return "redirect:/scan/" + job.getId();
     }
 
     @PostMapping("/scan/watchlist")
-    public String scanWatchlist(Model model) {
+    public String scanWatchlist(RedirectAttributes redirect) {
         List<String> tickers = watchlist.tickers();
         if (tickers.isEmpty()) {
-            model.addAttribute("error", "Your watchlist is empty — add a ticker first.");
+            redirect.addFlashAttribute("error", "Your watchlist is empty — add a ticker first.");
+            return "redirect:/scan";
+        }
+        ScanJob job = scanJobs.submit(tickers);
+        log.info("Scan job {} started for the {}-name watchlist", job.getId(), tickers.size());
+        return "redirect:/scan/" + job.getId();
+    }
+
+    /**
+     * A scan's own page — progress while it runs, results once it finishes, and it stays valid
+     * afterwards so clicking through to the calculator and back costs nothing.
+     */
+    @GetMapping("/scan/{jobId}")
+    public String scanJob(@PathVariable String jobId, Model model) {
+        ScanJob job = scanJobs.find(jobId).orElse(null);
+        if (job == null) {
+            model.addAttribute("error",
+                    "That scan is no longer available — only the last " + ScanJobService.MAX_RETAINED_JOBS
+                            + " are kept, and they are cleared on restart. Run it again.");
             model.addAttribute("watchlist", watchlist.findAll());
+            model.addAttribute("recentScans", scanJobs.recent());
             return "scan";
         }
-        log.info("Scanning the {}-name watchlist from the UI", tickers.size());
-        model.addAttribute("result", tierService.scan(tickers));
+
+        model.addAttribute("job", job);
+        model.addAttribute("result", job.getResult());
+        model.addAttribute("pasted", String.join(", ", job.getTickers()));
         model.addAttribute("watchlist", watchlist.findAll());
+        model.addAttribute("recentScans", scanJobs.recent());
+        // Rough, from the pacing rate: 2 Twelve Data calls per ticker at the configured ceiling.
+        model.addAttribute("secondsRemaining",
+                job.getEstimatedSecondsRemaining(2, twelveDataCallsPerMinute));
         return "scan";
     }
 
@@ -130,6 +166,7 @@ public class ScanController {
     public String planTrade(@RequestParam String ticker,
                             @RequestParam(required = false) java.math.BigDecimal entry,
                             @RequestParam(defaultValue = "true") boolean suggestLevels,
+                            @RequestParam(required = false) String scanId,
                             Model model) {
         String symbol = ticker == null ? null : ticker.trim().toUpperCase();
         log.info("Pre-filling the calculator for {} at {} (suggestLevels={})", symbol, entry, suggestLevels);
@@ -171,6 +208,8 @@ public class ScanController {
 
         model.addAttribute("form", form);
         model.addAttribute("prefilled", true);
+        // So the calculator can offer a way back to the list this trade came from.
+        model.addAttribute("scanId", scanId);
         return "calculator";
     }
 

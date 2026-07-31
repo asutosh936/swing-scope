@@ -641,3 +641,7 @@ textarea:focus {
 
 .suggested-tag { color: var(--accent); font-weight: 600; }
 .button-link.small { padding: 5px 12px; font-size: 0.75rem; white-space: nowrap; }
+
+.back-to-scan { margin-bottom: 16px; font-size: 0.85rem; }
+.back-to-scan a { color: var(--accent); text-decoration: none; font-weight: 600; }
+.back-to-scan a:hover { text-decoration: underline; }

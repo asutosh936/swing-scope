@@ -7,6 +7,10 @@
 
 <main class="wrap">
 
+    <div class="back-to-scan" th:if="${scanId != null}">
+        <a th:href="@{/scan/{id}(id=${scanId})}">← Back to scan results</a>
+    </div>
+
     <section class="card">
         <h1>Size a trade</h1>
         <p class="lede">
@@ -79,6 +83,7 @@
         </section>
 
         <form th:action="@{/analyze}" th:object="${form}" method="post" novalidate>
+            <input type="hidden" name="scanId" th:value="${scanId}">
             <input type="hidden" th:field="*{suggestedStop}">
             <input type="hidden" th:field="*{suggestedTarget}">
             <div class="grid">

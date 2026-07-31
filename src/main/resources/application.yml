@@ -98,3 +98,5 @@ scan:
   tier1-min-volume: 1000000
   tier1-min-market-cap-millions: 2000
   max-tickers-per-scan: 30
+  # Stored scans are purged weekly once older than this.
+  history-retention-days: 30

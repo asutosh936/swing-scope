@@ -30,7 +30,10 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.flash;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.model;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.view;
 
@@ -43,6 +46,9 @@ class ScanControllerTest {
 
     @Autowired
     private WatchlistService watchlist;
+
+    @Autowired
+    private com.swingscope.service.scan.ScanJobService scanJobs;
 
     /** Stubbed so the scan never touches a real provider. */
     @MockBean
@@ -138,13 +144,40 @@ class ScanControllerTest {
                 .contains("8 calls/minute");     // the pacing warning is visible up front
     }
 
+    /**
+     * Starts a scan and waits for the background worker, then returns the finished results page.
+     * Scans cannot be synchronous — a 20-name list takes about five minutes of paced fetching.
+     */
+    private MvcResult runScanAndOpenResults(String tickers) throws Exception {
+        String redirect = mockMvc.perform(post("/scan").param("tickers", tickers))
+                .andExpect(status().is3xxRedirection())
+                .andReturn().getResponse().getRedirectedUrl();
+        assertThat(redirect).startsWith("/scan/");
+        String jobId = redirect.substring("/scan/".length());
+
+        awaitCompletion(jobId);
+        return mockMvc.perform(get("/scan/" + jobId)).andExpect(status().isOk()).andReturn();
+    }
+
+    private void awaitCompletion(String jobId) {
+        long deadline = System.currentTimeMillis() + 10_000;
+        while (System.currentTimeMillis() < deadline) {
+            if (scanJobs.find(jobId).filter(j -> !j.isRunning()).isPresent()) {
+                return;
+            }
+            try {
+                Thread.sleep(20);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(e);
+            }
+        }
+        throw new AssertionError("scan job " + jobId + " did not finish within 10s");
+    }
+
     @Test
-    void submittingTickersRendersTheTieredTable() throws Exception {
-        MvcResult result = mockMvc.perform(post("/scan").param("tickers", "AAPL, THIN, DOWN"))
-                .andExpect(status().isOk())
-                .andExpect(view().name("scan"))
-                .andExpect(model().attributeExists("result"))
-                .andReturn();
+    void submittingTickersRunsAScanAndRendersTheTieredTable() throws Exception {
+        MvcResult result = runScanAndOpenResults("AAPL, THIN, DOWN");
 
         String html = result.getResponse().getContentAsString();
         assertThat(html)
@@ -162,7 +195,7 @@ class ScanControllerTest {
     @Test
     @DisplayName("only tradeable tiers get a plan link — a SKIP row has no action")
     void skipRowsHaveNoPlanAction() throws Exception {
-        MvcResult result = mockMvc.perform(post("/scan").param("tickers", "DOWN")).andReturn();
+        MvcResult result = runScanAndOpenResults("DOWN");
 
         assertThat(result.getResponse().getContentAsString()).doesNotContain("Plan this trade");
     }
@@ -170,17 +203,68 @@ class ScanControllerTest {
     @Test
     void anEmptyPasteIsRejectedWithAMessage() throws Exception {
         mockMvc.perform(post("/scan").param("tickers", "   "))
-                .andExpect(status().isOk())
-                .andExpect(model().attributeExists("error"))
-                .andExpect(model().attributeDoesNotExist("result"));
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/scan"))
+                .andExpect(flash().attributeExists("error"));
     }
 
     @Test
     void scanningAnEmptyWatchlistSaysSo() throws Exception {
         mockMvc.perform(post("/scan/watchlist"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(flash().attribute("error",
+                        org.hamcrest.Matchers.containsString("watchlist is empty")));
+    }
+
+    @Test
+    @DisplayName("results survive navigation — the same URL re-renders without re-running the scan")
+    void resultsStayAddressableAfterClickingAway() throws Exception {
+        String redirect = mockMvc.perform(post("/scan").param("tickers", "AAPL"))
+                .andReturn().getResponse().getRedirectedUrl();
+        String jobId = redirect.substring("/scan/".length());
+        awaitCompletion(jobId);
+
+        // Click into the calculator, then come back to exactly the same URL.
+        mockMvc.perform(get("/plan").param("ticker", "AAPL").param("entry", "40.00")
+                        .param("scanId", jobId).param("suggestLevels", "false"))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("scanId", jobId))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("Back to scan results")));
+
+        mockMvc.perform(get("/scan/" + jobId))
+                .andExpect(status().isOk())
+                .andExpect(model().attributeExists("result"))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("AAPL")));
+    }
+
+    @Test
+    @DisplayName("a plan link carries the scan id, so the trip back is one click")
+    void planLinksCarryTheScanId() throws Exception {
+        MvcResult result = runScanAndOpenResults("AAPL");
+
+        assertThat(result.getResponse().getContentAsString()).contains("scanId=");
+    }
+
+    @Test
+    void anUnknownScanIdExplainsItselfRatherThan404() throws Exception {
+        mockMvc.perform(get("/scan/nosuchjob"))
                 .andExpect(status().isOk())
                 .andExpect(model().attribute("error",
-                        org.hamcrest.Matchers.containsString("watchlist is empty")));
+                        org.hamcrest.Matchers.containsString("no longer available")))
+                .andExpect(model().attributeDoesNotExist("result"));
+    }
+
+    @Test
+    @DisplayName("recent scans are listed so an older list is never lost")
+    void recentScansAreListed() throws Exception {
+        String redirect = mockMvc.perform(post("/scan").param("tickers", "AAPL"))
+                .andReturn().getResponse().getRedirectedUrl();
+        awaitCompletion(redirect.substring("/scan/".length()));
+
+        mockMvc.perform(get("/scan"))
+                .andExpect(status().isOk())
+                .andExpect(model().attributeExists("recentScans"))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("Recent scans")));
     }
 
     @Test

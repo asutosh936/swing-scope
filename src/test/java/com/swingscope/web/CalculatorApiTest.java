@@ -16,12 +16,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest
 @ActiveProfiles("test")
-class TradeAnalysisControllerTest {
+class CalculatorApiTest {
 
     private final MockMvc mockMvc;
 
     @Autowired
-    TradeAnalysisControllerTest(WebApplicationContext context) {
+    CalculatorApiTest(WebApplicationContext context) {
         // Full filter chain so RequestLoggingFilter runs on every request under test.
         this.mockMvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(new RequestLoggingFilter())

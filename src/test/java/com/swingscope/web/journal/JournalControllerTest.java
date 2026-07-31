@@ -28,7 +28,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @ActiveProfiles("test")
 @Transactional
-class JournalWebControllerTest {
+class JournalControllerTest {
 
     private final MockMvc mockMvc;
 
@@ -36,7 +36,7 @@ class JournalWebControllerTest {
     private TradeJournalService journal;
 
     @Autowired
-    JournalWebControllerTest(WebApplicationContext context) {
+    JournalControllerTest(WebApplicationContext context) {
         this.mockMvc = MockMvcBuilders.webAppContextSetup(context).build();
     }
 

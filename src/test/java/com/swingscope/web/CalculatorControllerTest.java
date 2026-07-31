@@ -20,12 +20,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest
 @ActiveProfiles("test")
-class WebControllerTest {
+class CalculatorControllerTest {
 
     private final MockMvc mockMvc;
 
     @Autowired
-    WebControllerTest(WebApplicationContext context) {
+    CalculatorControllerTest(WebApplicationContext context) {
         this.mockMvc = MockMvcBuilders.webAppContextSetup(context).build();
     }
 

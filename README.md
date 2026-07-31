@@ -38,6 +38,7 @@ Full task breakdown: [swing-trade-assistant-implementation-plan.md](swing-trade-
 - Java 17 (enforced via `maven.compiler.release=17`; builds fine on a newer JDK)
 - Spring Boot 3.3.5 — Spring Web, Bean Validation, Thymeleaf, Cache (Caffeine), Data JPA
 - Spring `RestClient` for provider HTTP
+- springdoc-openapi 2.6 — OpenAPI 3 spec + Swagger UI at `/swagger-ui.html`
 - H2 in file mode (`./data/swing-scope`), swappable to Postgres later
 - Maven
 - JUnit 5 + AssertJ + MockMvc + MockRestServiceServer, JaCoCo with an **80% line/branch/instruction gate**
@@ -331,26 +332,20 @@ grouped, which is what the UI renders.
 curl -s -X POST http://localhost:8080/swing-scope/api/scan/watchlist
 ```
 
-**Manage the watchlist:**
-
-```bash
-curl -s -X POST http://localhost:8080/swing-scope/api/watchlist -H 'Content-Type: application/json' -d '{"ticker":"vz","note":"dividend payer"}'
-```
+**Read the watchlist:**
 
 ```bash
 curl -s http://localhost:8080/swing-scope/api/watchlist
 ```
 
+**Edit a note** — the one write still on the API, since the UI has no note editor yet:
+
 ```bash
 curl -s -X POST http://localhost:8080/swing-scope/api/watchlist/1/note -H 'Content-Type: application/json' -d '{"note":"slow mover"}'
 ```
 
-```bash
-curl -s -X DELETE http://localhost:8080/swing-scope/api/watchlist/1
-```
-
-Adding a ticker already on the list is a **no-op, not an error** — re-adding is safe. A blank ticker
-returns 400; an unknown id returns 404.
+Adding and removing tickers happens on the scan page. Adding one already on the list is a **no-op,
+not an error**; an unknown id returns 404.
 
 **A scan never fails as a whole.** A ticker whose data can't be fetched comes back as
 `"tier": "UNAVAILABLE"` with the reason attached, and the rest of the list is still tiered. With no
@@ -358,40 +353,14 @@ API keys configured, every row returns `UNAVAILABLE` with
 `no configured provider offers QUOTE — check the API keys in the environment` rather than an error
 page.
 
-### The journal over HTTP
+### The journal over HTTP (read-only)
 
-The whole lifecycle, end to end. Every command below is real and was run against the app.
-
-**Log a planned trade** — returns `201` with the created entry, including its `id`:
-
-```bash
-curl -s -X POST http://localhost:8080/swing-scope/api/journal -H 'Content-Type: application/json' -d '{"ticker":"carr","setupType":"PULLBACK","entry":15.50,"stop":14.75,"target":18.50,"ratio":4.00,"shares":6,"riskAmount":4.50}'
-```
-
-**Mark it filled** at the price you actually got (replace `1` with the id):
+Journal **writes** go through the UI — planning, filling and closing are form actions, so there is
+one write path rather than two implementations to keep in step. What you can script is reading.
 
 ```bash
-curl -s -X POST http://localhost:8080/swing-scope/api/journal/1/fill -H 'Content-Type: application/json' -d '{"fillPrice":15.55,"actualShares":6}'
+curl -s http://localhost:8080/swing-scope/api/journal
 ```
-
-**Close it.** The exit price decides the outcome; the lesson and rules answer are mandatory:
-
-```bash
-curl -s -X POST http://localhost:8080/swing-scope/api/journal/1/close -H 'Content-Type: application/json' -d '{"exitPrice":18.50,"lessonText":"waited for the trigger candle instead of anticipating","rulesFollowed":true}'
-```
-
-→ `"status": "CLOSED_WIN", "realizedPnl": 17.70` — that is `(18.50 − 15.55) × 6`.
-
-**Save a setup the rules refused** — terminal on arrival, counted nowhere:
-
-```bash
-curl -s -X POST http://localhost:8080/swing-scope/api/journal/rejected -H 'Content-Type: application/json' -d '{"ticker":"CI","setupType":"BREAKOUT","entry":20.00,"stop":19.00,"target":21.87,"ratio":1.87,"shares":5,"riskAmount":5.00,"reason":"ratio 1.87 < 2.0"}'
-```
-
-→ `"status": "REJECTED", "lessonText": "Rejected by the rules: ratio 1.87 < 2.0"`. The `stats`
-endpoint reports these under `rejected`.
-
-**Read the scorecard:**
 
 ```bash
 curl -s http://localhost:8080/swing-scope/api/journal/stats
@@ -406,10 +375,11 @@ curl -s http://localhost:8080/swing-scope/api/journal/stats
   "losses": 0,
   "scratches": 0,
   "noFills": 0,
+  "rejected": 1,
   "winRate": 100.0,
-  "netPnl": 17.70,
-  "expectancy": 17.70,
-  "averageWin": 17.70,
+  "netPnl": 20.00,
+  "expectancy": 20.00,
+  "averageWin": 20.00,
   "averageLoss": 0,
   "losersWithRulesFollowed": 0,
   "graduationTarget": 25,
@@ -418,23 +388,14 @@ curl -s http://localhost:8080/swing-scope/api/journal/stats
 }
 ```
 
-**Other operations:**
+One entry by id — and a 404 with a readable message for an id that doesn't exist:
 
 ```bash
-curl -s http://localhost:8080/swing-scope/api/journal
+curl -s http://localhost:8080/swing-scope/api/journal/1
 ```
 
-```bash
-curl -s -X POST http://localhost:8080/swing-scope/api/journal/1/no-fill
-```
-
-```bash
-curl -s -X DELETE http://localhost:8080/swing-scope/api/journal/1
-```
-
-**Error responses.** An illegal status move returns **409**, not 500 — closing a trade that never
-filled gives `"cannot move a trade from PLANNED to CLOSED_WIN"`. An unknown id returns **404**. A
-close missing its lesson or rules answer returns **400** with a `fieldErrors` map.
+For creating, filling, closing or deleting, use the journal UI. To fix a row by hand, the H2 console
+is at `/swing-scope/h2-console`.
 
 ### Build and test
 
@@ -453,40 +414,83 @@ mvn test
 
 ---
 
+## API documentation (Swagger)
+
+With the app running, the interactive docs are at:
+
+**http://localhost:8080/swing-scope/swagger-ui.html**
+
+Every endpoint carries a summary, a full description, response codes with examples, and the
+behaviour that would otherwise bite you — that a failed rule check is a `200` not an error, that
+`inUptrend: null` means "not enough history" rather than "no", that `marketCap` is in millions, and
+that a cold scan blocks for minutes against the 8-calls-per-minute free tier. **Try it out** posts
+against your running instance.
+
+The raw spec, for importing into Postman/Insomnia or generating a client:
+
+```bash
+curl -s http://localhost:8080/swing-scope/v3/api-docs
+```
+
+```bash
+curl -s http://localhost:8080/swing-scope/v3/api-docs.yaml
+```
+
+**Only `/api/**` is documented.** The other routes are Thymeleaf form handlers that return HTML and
+redirects; listing them in an API spec would tell a caller they can POST JSON to endpoints that hand
+back a rendered page. That scoping is enforced by `springdoc.paths-to-match` and asserted in
+`OpenApiDocumentationTest`.
+
+---
+
 ## Routes
 
 Everything is served under the `/swing-scope` context path (`server.servlet.context-path`).
 
 | Route | Method | Purpose |
 |---|---|---|
+| **Calculator** — `CalculatorController` | | |
 | `/swing-scope/` | GET | Calculator form |
-| `/swing-scope/analyze` | POST | Form submit → same page with the verdict |
-| `/swing-scope/scan` | GET, POST | Scan form / tiered results |
+| `/swing-scope/analyze` | POST | Form submit → verdict |
+| `/swing-scope/journal/from-calculator` | POST | Save the result to the journal (PLANNED or REJECTED) |
+| `/swing-scope/api/analyze` | POST | Sizing math as JSON |
+| **Scan** — `ScanController` | | |
+| `/swing-scope/scan` | GET, POST | Scan page / run a scan |
 | `/swing-scope/scan/watchlist` | POST | Scan the saved watchlist |
+| `/swing-scope/watchlist` | POST | Add a ticker |
+| `/swing-scope/watchlist/{id}/delete` | POST | Remove a ticker |
 | `/swing-scope/plan?ticker=&entry=` | GET | Calculator pre-filled from a scan row |
-| `/swing-scope/watchlist` | POST | Add a ticker (UI) |
-| `/swing-scope/watchlist/{id}/delete` | POST | Remove a ticker (UI) |
-| `/swing-scope/api/scan` | POST | Tier a pasted list |
-| `/swing-scope/api/scan/watchlist` | POST | Tier the saved watchlist |
-| `/swing-scope/api/watchlist` | GET, POST | List / add watchlist tickers |
-| `/swing-scope/api/watchlist/{id}` | DELETE | Remove a watchlist ticker |
-| `/swing-scope/api/watchlist/{id}/note` | POST | Update a note |
-| `/swing-scope/journal` | GET | Journal list — the running scorecard |
+| `/swing-scope/api/scan` | POST | Tier a pasted list, as JSON |
+| `/swing-scope/api/scan/watchlist` | POST | Tier the watchlist, as JSON |
+| `/swing-scope/api/watchlist` | GET | Watchlist as JSON |
+| `/swing-scope/api/watchlist/{id}/note` | POST | Edit a note — no UI editor yet |
+| **Journal** — `JournalController` | | |
+| `/swing-scope/journal` | GET, POST | Scorecard list / create |
 | `/swing-scope/journal/new` | GET | Log-a-trade form |
-| `/swing-scope/journal/{id}` | GET | Trade detail — plan, execution, outcome |
+| `/swing-scope/journal/{id}` | GET, POST | Detail / update |
 | `/swing-scope/journal/{id}/edit` | GET | Edit form |
-| `/swing-scope/api/journal` | GET, POST | List / create entries |
-| `/swing-scope/api/journal/rejected` | POST | Record a setup the rules refused |
+| `/swing-scope/journal/{id}/fill` | POST | PLANNED → FILLED |
+| `/swing-scope/journal/{id}/no-fill` | POST | PLANNED → NO_FILL |
+| `/swing-scope/journal/{id}/close` | POST | FILLED → CLOSED_* |
+| `/swing-scope/journal/{id}/delete` | POST | Delete an entry |
+| `/swing-scope/api/journal` | GET | All entries as JSON |
 | `/swing-scope/api/journal/stats` | GET | Scorecard totals |
-| `/swing-scope/api/journal/{id}` | GET, PUT, DELETE | Fetch / update / delete one entry |
-| `/swing-scope/api/journal/{id}/fill` | POST | PLANNED → FILLED |
-| `/swing-scope/api/journal/{id}/no-fill` | POST | PLANNED → NO_FILL |
-| `/swing-scope/api/journal/{id}/close` | POST | FILLED → CLOSED_* |
-| `/swing-scope/api/analyze` | POST | JSON API |
+| `/swing-scope/api/journal/{id}` | GET | One entry as JSON |
+| **Market data** — `MarketDataController` | | |
 | `/swing-scope/api/marketdata/{symbol}` | GET | Combined snapshot: price, EMAs, cap, earnings |
 | `/swing-scope/api/marketdata/search?q=` | GET | Ticker lookup |
 | `/swing-scope/api/marketdata/status` | GET | Is the US market open |
+| **Tools** | | |
+| `/swing-scope/swagger-ui.html` | GET | Swagger UI — browse and try the API |
+| `/swing-scope/v3/api-docs` | GET | OpenAPI 3 spec as JSON |
 | `/swing-scope/h2-console` | GET | SQL console over the journal database (localhost only) |
+
+**Four controllers, one per feature — and the JSON surface is read-only.** Every *write* goes through
+the UI; `/api/**` covers reading and computing. An earlier version mirrored all 11 write operations
+on `/api` too, which meant two code paths to keep in step for no benefit, since the pages never
+called the API. The two exceptions are deliberate: `POST /api/analyze` and `POST /api/scan` compute
+without mutating anything, and `POST /api/watchlist/{id}/note` is the one write with no UI equivalent
+yet.
 
 ### `POST /api/analyze`
 
@@ -665,26 +669,32 @@ with doubling backoff before surfacing as HTTP 429 with a `Retry-After` header.
 ```
 src/main/java/com/swingscope/
   SwingScopeApplication.java
-  config/    TradingRules, MarketDataProperties, CacheConfig, RequestLoggingFilter
-  domain/    TradeSetup, TradeAnalysis
-    marketdata/  Quote, Candle(s), EarningsEvent, CompanyProfile,
-                 MarketStatus, SymbolMatch, MarketSnapshot
-  service/   TradeCalculatorService — all the math
-    marketdata/  MarketDataProvider (capability-based interface),
-                 AbstractRestProvider (logging + 429 backoff),
-                 MarketDataService (routing + snapshot assembly),
-                 EmaCalculator, exceptions
-      twelvedata/  TwelveDataClient + DTOs   (primary)
-      finnhub/     FinnhubClient + DTOs      (secondary)
-  web/       TradeAnalysisController (JSON), WebController (UI),
-             MarketDataController, TradeSetupForm, ApiExceptionHandler
+  config/     TradingRules, ScanProperties, MarketDataProperties,
+              CacheConfig, RequestLoggingFilter
+  domain/     TradeSetup, TradeAnalysis
+  domain/marketdata/  Quote, Candle(s), MarketSnapshot, EarningsEvent, NewsItem, …
+  domain/scan/        Tier, TieredStock, ScanResult, WatchlistEntry
+  domain/journal/     TradeJournalEntry, TradeStatus, SetupType, JournalStats
+  repository/ TradeJournalRepository, WatchlistRepository
+  service/            TradeCalculatorService — the sizing math
+  service/marketdata/ MarketDataProvider + TwelveDataClient/FinnhubClient,
+                      MarketDataService, EmaCalculator, RateLimiter
+  service/scan/       TierService, WatchlistService
+  service/journal/    TradeJournalService
+  web/        CalculatorController, ScanController (scan/), JournalController (journal/),
+              MarketDataController, ApiExceptionHandler,
+              TradeSetupForm, JournalEntryForm
 
 src/main/resources/
-  templates/calculator.html, scan.html, journal.html, journal-detail.html, journal-form.html
-  templates/fragments/layout.html
+  templates/  calculator.html, scan.html,
+              journal.html, journal-detail.html, journal-form.html,
+              fragments/layout.html
   static/css/app.css
-  application.yml
+  application.yml, application-example.yml
 ```
+
+**One controller per feature.** Calculator, scan, journal, market data. Each owns both its pages and
+its JSON routes, so a feature's whole HTTP surface is in one file.
 
 ## Non-goals
 

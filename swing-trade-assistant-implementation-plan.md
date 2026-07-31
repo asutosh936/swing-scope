@@ -114,6 +114,23 @@ Status legend: ☐ Not started · ◐ In progress · ☑ Done
 | | 5.8 | "Plan this trade" → auto-creates a PLANNED journal entry | ☑ |
 | | 5.9 | (optional) Spring AI news-summary endpoint | ☐ deferred |
 | | 5.10 | (optional) Spring AI journal-narrative endpoint | ☐ deferred |
+| **6 — Suggested Levels** | 6.1 | `SwingPointDetector` (fractal pivots) | ☐ |
+| | 6.2 | `AtrCalculator` (ATR-14) | ☐ |
+| | 6.3 | `PriceLevelService` — cluster pivots into scored zones | ☐ |
+| | 6.4 | `LevelSuggestionService` — stop/target candidates + rationale | ☐ |
+| | 6.5 | Refusal guards (too few bars, no pivot, stop too wide) | ☐ |
+| | 6.6 | Journal `levelSource` provenance + scorecard breakdown | ☐ |
+| | 6.7 | `GET /api/levels/{symbol}` + suggested prefill in `/plan` | ☐ |
+| | 6.8 | Inline SVG level chart on the calculator | ☐ |
+| | 6.9 | `LevelProperties` — all thresholds configurable | ☐ |
+| **6A — Backtest harness** | 6A.1 | Backtest result records (R-based metrics) | ☐ |
+| | 6A.2 | `LevelBacktestService.replay()` — walk-forward, no lookahead | ☐ |
+| | 6A.3 | Conservative resolvers (intrabar → stop, gap → fill at open) | ☐ |
+| | 6A.4 | **Lookahead-bias test** | ☐ |
+| | 6A.5 | `ParameterSweep` ranked by out-of-sample expectancy | ☐ |
+| | 6A.6 | In-sample / out-of-sample split, both reported | ☐ |
+| | 6A.7 | `POST /api/backtest` + results page with caveats on-screen | ☐ |
+| | 6A.8 | Adopt winning params into `LevelProperties` with justification recorded | ☐ |
 | **Cross-cutting** | X.1 | Config & secrets (env var, example yml, git-ignore) | ☑ |
 | | X.2 | Bean Validation on `TradeSetup` | ◐ field-level done; cross-field stop<entry<target lives in the service, not as a constraint |
 | | X.3 | Tests: calculator + EMA + provider clients (MockRestServiceServer) | ☑ |
@@ -279,7 +296,123 @@ Decisions taken (answers to the questions this plan left open):
 - **Bug fixed: enum columns were native H2 ENUMs.** Hibernate maps a Java enum to H2's native ENUM type, which fixes the permitted values at creation time; `ddl-auto: update` never widens it. Adding `REJECTED` therefore failed at INSERT on any pre-existing database (`Value not permitted for column ...`). Both enum columns are now pinned with `columnDefinition = "varchar(20)"`, so future constants need no migration. **The test suite could not catch this** — it runs `create-drop` on in-memory H2, where the schema is always rebuilt from the current enum. `EnumColumnMappingTest` now guards the mapping. Any future schema change that alters a column type still needs a manual migration or a dropped `data/`.
 - **Bug fixed: table buttons rendered invisible.** `.journal-table a` (specificity 0,1,1) beat `.button-link` (0,1,0) and painted "Plan this trade" accent-blue on its own accent-blue background. Fixed with `.journal-table a.button-link`, guarded by `ScanStylesheetTest` — HTML-level tests could not catch it because the markup was correct.
 
+### Controller consolidation (2026-07-29)
+The HTTP surface was **7 controllers / 39 endpoints**, because the plan specified REST endpoints (1.6, 3.7, 5.2 — "used by the UI") while the UI was built as server-rendered Thymeleaf forms that never called them. Result: 11 write operations implemented twice.
+
+Now **4 controllers / 30 endpoints**, one per feature:
+- `CalculatorController` (was `WebController` + `TradeAnalysisController`)
+- `ScanController` (was `ScanWebController` + `ScanApiController`)
+- `JournalController` (was `JournalWebController` + `JournalApiController`)
+- `MarketDataController` (unchanged)
+
+**The `/api/**` surface is read-only.** Removed: `POST/PUT/DELETE /api/journal*` (create, update, fill, no-fill, close, delete, rejected) and `POST /api/watchlist`, `DELETE /api/watchlist/{id}`. `JournalRequests` went with them. Kept because they compute rather than mutate: `POST /api/analyze`, `POST /api/scan`, `POST /api/scan/watchlist`. Kept because it has no UI equivalent: `POST /api/watchlist/{id}/note`.
+
+**API documentation (2026-07-30).** springdoc-openapi 2.6 generates an OpenAPI 3 spec from the controllers; Swagger UI at `/swing-scope/swagger-ui.html`, raw spec at `/v3/api-docs`. Scoped with `springdoc.paths-to-match: /api/**` so the Thymeleaf form handlers stay out — they return HTML, and documenting them as an API would be a lie to the caller. `OpenApiDocumentationTest` asserts all 11 operations are present, that each has a summary *and* a description, and that no non-`/api` path leaks in. Descriptions deliberately cover the traps: rule failures are 200s, `inUptrend: null` ≠ false, market cap is in millions, cold scans block for minutes. Domain records are *not* annotated with `@Schema` — the endpoint docs carry the meaning.
+
+**Rule for new work:** a write belongs on the UI controller only. Add a JSON write endpoint solely when there is no UI path to the same operation, and say why in a comment.
+
 **Open question for Phase 4/5 integration:** partial exits are still not modelled — one fill price, one exit price, one share count. The Phase 2 management-rules panel tells the user "partial exits are fine", so either the journal needs to handle them or that wording should change.
+
+---
+
+
+---
+
+## PHASE 6 — Suggested Stop & Target Levels (automating the last manual step)
+
+**Goal:** compute *candidate* stop and target levels from the daily candles already in cache, so the two remaining manual inputs become confirm-or-override rather than read-the-chart-from-scratch.
+
+### ⚠️ This reverses a stated principle — read before building
+Phases 1–5 were built on: *"reading the chart to set these two levels IS the judgment we keep human. The tool never guesses them."* Phase 6 changes that, and moves toward the non-goal *"no signal generation."* The design below keeps the reversal honest rather than silent:
+
+- **Propose, never decide.** Suggested levels prefill the calculator marked as suggestions, with reasoning attached. Nothing is sized until the human confirms or overrides.
+- **Refuse rather than guess.** If no clean pivot exists in the window, return no suggestion and say why. An invented level is worse than a blank field.
+- **Show the working.** Every suggestion carries the evidence (which pivots, how many touches, how recent) and a small chart. The human sanity-checks in seconds instead of measuring from zero.
+- **Record provenance.** The journal stores whether levels were HUMAN, SUGGESTED or EDITED, so the scorecard can eventually answer "are my levels better than the computed ones?" Without this the experiment is unfalsifiable.
+
+### Key enabler (verified 2026-07-30)
+`MarketDataService.getDailyCandles(symbol, 250)` is already called for every scanned ticker and cached for 6h. Level detection reads those same bars — **zero extra provider calls** for anything already scanned, so the 8/min free-tier ceiling is untouched.
+
+### Tasks
+
+| # | Task | Notes |
+|---|---|---|
+| 6.1 | `SwingPointDetector` — fractal pivot detection over `List<Candle>` | A swing low is a bar whose low is below the `n` bars either side (default n=3); swing high is the mirror. Pure function, hand-checked tests against a known series. |
+| 6.2 | `AtrCalculator` — Average True Range (14) | True range = max(high−low, \|high−prevClose\|, \|low−prevClose\|). Used for stop buffers and as a sanity floor. Hand-checked test. |
+| 6.3 | `PriceLevelService` — cluster pivots into support/resistance **zones** | Pivots within `atr × tolerance` of each other collapse into one zone. Each zone scores on **touches** (how many pivots), **recency** (bars since last touch) and **volume** at those bars. Returns zones sorted by distance from current price. |
+| 6.4 | `LevelSuggestionService` — turn zones into a stop and a target | **Stop** = nearest support zone below price, minus a buffer (`0.5 × ATR` default) so noise at the level doesn't trigger it. **Target** = nearest resistance zone above price. Emits `LevelSuggestion(value, rationale, confidence, sourceZone)` or an explicit "no clean level" refusal. |
+| 6.5 | Sanity guards — refuse rather than emit nonsense | No suggestion when: fewer than ~60 bars; no pivot below/above price in the window; stop would be >`maxStopPercent` (default 15%) from entry; resulting ratio is unreachable. Each refusal carries a plain reason. |
+| 6.6 | **Journal provenance** — `levelSource` enum on `TradeJournalEntry` | HUMAN / SUGGESTED / EDITED (suggested then changed). Scorecard gains a breakdown so win rate and expectancy can be compared across the three. This is the feedback loop that makes Phase 6 evaluable. |
+| 6.7 | `GET /api/levels/{symbol}` + prefill in `/plan` | Fields arrive pre-filled but visually marked **suggested**, with the rationale beside them and a one-click "clear and do it myself". |
+| 6.8 | Level chart on the calculator page | Inline SVG: ~120 daily bars with the support and resistance zones shaded and the proposed stop/target drawn. No JS charting library — the data is already server-side. |
+| 6.9 | Config in `ScanProperties`/new `LevelProperties` | `pivotStrength` (3), `atrPeriod` (14), `stopBufferAtrMultiple` (0.5), `zoneToleranceAtrMultiple` (0.5), `minTouches` (2), `maxStopPercent` (15), `lookbackBars` (250). All tunable without a rebuild. |
+
+### Phase 6A — Backtest harness (build this first)
+
+**Goal:** measure whether the suggested levels are any good, before trusting them. Every threshold in 6.9 is currently a guess; this turns each one into a measured choice.
+
+**Why first:** a pivot detector always emits *something*. Without measurement there is no way to tell a well-chosen buffer from a badly-chosen one, and the suggestions would be adopted on faith. This is also the honest answer to "can AI make Phase 6 more accurate?" — no, but this can. It is deterministic arithmetic, no LLM involved.
+
+#### The method
+For each symbol and each historical bar `i` (walk-forward):
+1. Compute levels using **only** `bars[0..i]`.
+2. Take the suggested stop and target; entry = close of bar `i`.
+3. Walk forward through `bars[i+1..]` and record which was touched first.
+4. Stop after `timeStopBars` (default **15 trading days**, matching the management-rules panel) and record a TIMEOUT.
+
+Outcomes: `TARGET_FIRST` · `STOP_FIRST` · `TIMEOUT` · `NO_SUGGESTION` (the refusal guards fired).
+
+#### Correctness properties — these decide whether the numbers mean anything
+| Risk | Handling |
+|---|---|
+| **Lookahead bias** | The killer. Levels must never see a bar at or after entry. Enforced by passing an explicit sublist, and asserted by a dedicated test that feeds a series whose future contains an obvious pivot and proves it is not used. |
+| **Intrabar ambiguity** | If one daily bar's range spans both stop and target, daily data cannot say which came first. **Resolve as STOP_FIRST.** Assuming the favourable order is how backtests flatter themselves. |
+| **Gap-through-stop** | If a bar opens below the stop, fill at the **open**, not the stop — the loss is larger than 1R. Record the true R. |
+| **Survivorship bias** | Testing only on today's watchlist tests names that still exist and that you already like. State it in the report; it cannot be fixed with free data. |
+| **Overfitting** | Split history: tune on the **older 70%**, validate on the **most recent 30%**, and report both. A parameter set that wins in-sample and loses out-of-sample is noise. |
+
+#### Metrics — in **R**, not dollars
+Position size varies, so results are reported in risk multiples: a target hit at 2.5× the risk distance is +2.5R, a clean stop is −1R, a gap-through may be −1.4R.
+- Hit rate (target-first %), timeout %, no-suggestion %
+- **Expectancy in R** — the headline number
+- R distribution and worst observed R
+- Median bars to resolution
+
+#### Tasks
+| # | Task |
+|---|---|
+| 6A.1 | `BacktestOutcome` / `BacktestTrade` / `BacktestReport` records (R-based metrics) |
+| 6A.2 | `LevelBacktestService.replay(symbol, candles, params)` — walk-forward, no lookahead |
+| 6A.3 | Conservative resolvers: intrabar ambiguity → stop, gap → fill at open |
+| 6A.4 | **Lookahead-bias test** — the single most important test in the harness |
+| 6A.5 | `ParameterSweep` — grid over pivotStrength × bufferAtrMultiple × minTouches, ranked by out-of-sample expectancy |
+| 6A.6 | In-sample / out-of-sample split with both reported side by side |
+| 6A.7 | `POST /api/backtest` + a results page: per-symbol and aggregate, with the caveats printed on the page, not buried in docs |
+| 6A.8 | Wire the winning parameters into `LevelProperties` defaults — recording the date, sample size and out-of-sample expectancy that justified them |
+
+#### Data budget
+Candles are already cached per scanned symbol (250 bars ≈ 1 trading year), so a backtest over your watchlist costs **1 provider call per uncached symbol** and nothing for the rest. 250 bars yields roughly 200 walk-forward entries per symbol — thin for one name, reasonable across 20.
+
+*Worth verifying before relying on it:* Twelve Data's `outputsize` is documented well above 250 (up to ~5000), so deeper history is likely a one-line config change at 1 call per symbol. Confirm with a real request before planning around it.
+
+#### Success criteria — agree these before tuning
+A parameter set is adopted only if, **out-of-sample**: expectancy is positive in R, the no-suggestion rate stays under ~40% (or the feature rarely helps), and it beats the naive baseline of *stop = entry − 2×ATR, target = entry + 2×risk*. **If nothing beats the naive baseline, that is the finding** — ship the baseline, or ship nothing, and keep setting levels by hand.
+
+
+### Known limitations — state these in the UI, not just here
+- **Support/resistance is not objective.** Different pivot strengths give different levels. The output will look authoritative and is not; it is one defensible reading among several.
+- **Daily bars only.** No intraday structure, no volume profile, no trendlines, no moving-average support.
+- **No context.** The detector cannot see an earnings gap, a sector move or a news catalyst that makes a level meaningless.
+- **Over-fitting risk.** Tuning the parameters until levels look good on past charts is curve-fitting. Change them rarely and record why.
+- **Skill cost.** Automating chart-reading during the paper phase removes the reps that phase exists to build. 6.6 is what keeps that trade-off measurable.
+
+### Decisions needed before building
+1. **Prefill or blank-with-hint?** Prefill the fields (faster, risks anchoring) vs. show suggestions beside empty fields (slower, keeps the human deciding first).
+2. **Stop style:** structure-based (support − ATR buffer) only, or also offer a pure-ATR stop (`entry − 2×ATR`) for names with no clean structure?
+3. **Target style:** nearest resistance only, or also a ratio-derived target (`entry + 2 × risk`) so a setup can be sized when overhead is clear?
+4. **Provenance granularity:** is a 1-cent tweak to a suggested level EDITED or still SUGGESTED?
+
+**Deliverable:** paste a Finviz list → tiered shortlist → click a Tier-1 row → calculator opens with entry, stop and target proposed, each with its reasoning and a chart → confirm, adjust or reject → size and journal. The human's job becomes *reviewing* a proposal rather than *constructing* one — which is a real change in the tool's character, deliberately made.
 
 ---
 

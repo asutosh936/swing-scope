@@ -116,49 +116,8 @@ class ScanControllerTest {
                 .andExpect(jsonPath("$.stocks[0].symbol").value("AAPL"));
     }
 
-    @Test
-    void watchlistCrudOverTheApi() throws Exception {
-        MvcResult created = mockMvc.perform(post("/api/watchlist")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"ticker\":\"vz\",\"note\":\"dividend payer\"}"))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.ticker").value("VZ"))
-                .andReturn();
 
-        long id = com.fasterxml.jackson.databind.json.JsonMapper.builder().build()
-                .readTree(created.getResponse().getContentAsString()).get("id").asLong();
 
-        mockMvc.perform(get("/api/watchlist"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].ticker").value("VZ"));
-
-        mockMvc.perform(post("/api/watchlist/" + id + "/note")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"note\":\"slow mover\"}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.note").value("slow mover"));
-
-        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
-                        .delete("/api/watchlist/" + id))
-                .andExpect(status().isNoContent());
-
-        assertThat(watchlist.findAll()).isEmpty();
-    }
-
-    @Test
-    void removingAnUnknownWatchlistEntryIs404() throws Exception {
-        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
-                        .delete("/api/watchlist/9999"))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.message").value("no watchlist entry with id 9999"));
-    }
-
-    @Test
-    void aBlankTickerIsRejectedWith400() throws Exception {
-        mockMvc.perform(post("/api/watchlist").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"ticker\":\"  \"}"))
-                .andExpect(status().isBadRequest());
-    }
 
     // -------------------------------------------------------------------------------------- UI
 
@@ -264,5 +223,38 @@ class ScanControllerTest {
         assertThat(result.getResponse().getContentAsString())
                 .contains("pre-filled from the scan")
                 .contains("no API can give you");
+    }
+
+    @Test
+    @DisplayName("watchlist writes live on the UI only — the JSON write endpoints are gone")
+    void watchlistWriteApiIsNotExposed() throws Exception {
+        mockMvc.perform(post("/api/watchlist").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ticker\":\"VZ\"}"))
+                .andExpect(status().is4xxClientError());
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .delete("/api/watchlist/1"))
+                .andExpect(status().is4xxClientError());
+    }
+
+    @Test
+    @DisplayName("the note endpoint stays — there is no UI editor for notes yet")
+    void noteEndpointStillWorks() throws Exception {
+        long id = watchlist.add("VZ", "old note").getId();
+
+        mockMvc.perform(post("/api/watchlist/" + id + "/note")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"note\":\"dividend payer\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.note").value("dividend payer"));
+    }
+
+    @Test
+    void watchlistIsReadableAsJson() throws Exception {
+        watchlist.add("VZ", null);
+
+        mockMvc.perform(get("/api/watchlist"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].ticker").value("VZ"));
     }
 }

@@ -59,6 +59,18 @@ marketdata:
     news: 1h
     market-status: 10m
 
+# OpenAPI / Swagger UI. Only /api/** is documented — the other routes are Thymeleaf form
+# handlers that return HTML, not an API surface.
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+    display-request-duration: true
+  paths-to-match: /api/**
+
 logging:
   level:
     root: INFO

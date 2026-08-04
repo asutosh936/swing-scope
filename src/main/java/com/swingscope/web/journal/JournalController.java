@@ -45,9 +45,12 @@ public class JournalController {
     private static final Logger log = LoggerFactory.getLogger(JournalController.class);
 
     private final TradeJournalService journal;
+    private final com.swingscope.config.TradingRules rules;
 
-    public JournalController(TradeJournalService journal) {
+    public JournalController(TradeJournalService journal,
+                             com.swingscope.config.TradingRules rules) {
         this.journal = journal;
+        this.rules = rules;
     }
 
     @ModelAttribute("setupTypes")
@@ -72,10 +75,36 @@ public class JournalController {
         return "journal-detail";
     }
 
-    /** 5.5 — create form. */
+    /**
+     * 5.5 — create form. Task 8.8 lets a scan row hand its own numbers over as query parameters, so
+     * logging an auto-analysed candidate does not mean retyping what the tool just computed.
+     *
+     * <p>The form is still shown rather than saved outright: what gets journalled is the trade the
+     * human decided to take, which is not always the one the scan proposed.
+     */
     @GetMapping("/journal/new")
-    public String createForm(Model model) {
-        model.addAttribute("form", new JournalEntryForm());
+    public String createForm(@RequestParam(required = false) String ticker,
+                             @RequestParam(required = false) BigDecimal entry,
+                             @RequestParam(required = false) BigDecimal stop,
+                             @RequestParam(required = false) BigDecimal target,
+                             @RequestParam(required = false) BigDecimal ratio,
+                             @RequestParam(required = false) Integer shares,
+                             Model model) {
+        JournalEntryForm form = new JournalEntryForm();
+        form.setTicker(ticker == null ? null : ticker.trim().toUpperCase());
+        form.setEntry(entry);
+        form.setStop(stop);
+        form.setTarget(target);
+        form.setRatio(ratio);
+        if (shares != null) {
+            form.setShares(shares);
+        }
+        form.setRiskAmount(rules.defaultRiskAmount());
+
+        if (ticker != null) {
+            log.info("Pre-filling a journal entry for {} from a scan row", form.getTicker());
+        }
+        model.addAttribute("form", form);
         model.addAttribute("editing", false);
         return "journal-form";
     }

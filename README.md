@@ -169,11 +169,47 @@ Every row carries a short plain reason — `below the 50-EMA`, `up 9.3% today �
 `earnings in 2 days`, `trend intact but thin — 420,000 avg shares/day vs 1,000,000 needed` — so a tier is
 never a black box.
 
-### 3. Plan a trade from a row — now with suggested levels
+### 3. The candidates arrive already analysed
 
-Tier 1 and Tier 2 rows have a **Plan this trade** link. It opens the calculator with the ticker and
-entry pre-filled from the current price, **and proposes a stop and a target** computed from support
-and resistance in the daily candles:
+Tier 1 and Tier 2 rows come back **planned and sized**, without a second click. Each row shows the
+entry, the proposed stop and target, the reward:risk ratio, the share count, a verdict and a
+confidence grade:
+
+```
+TICKER  ENTRY     STOP      TARGET    R:R      SHARES  CONFIDENCE   VERDICT
+NVDA    $206.64   $190.85   $212.19   0.35:1   0       MEDIUM 4/6   Fails a rule
+        ratio 0.35 < 2.0, and position size is 0 shares
+        Confidence held back by: Ratio margin (0.35 against a 2.0 minimum); Sizing headroom (0 shares)
+```
+
+The share counts assume the account stated on the page (`analysis.account-size` and
+`analysis.risk-amount`) — a share count means nothing without one, so it is never implied.
+
+**Confidence is about the derivation, not the outcome.** It counts six things: depth of history,
+whether the levels came from price structure or the volatility fallback, how well-tested the stop's
+zone is, whether the provider data was complete, how much margin the ratio has over your minimum,
+and whether the size has headroom. Hovering the badge lists all six with the values behind them.
+A HIGH grade means *"these numbers rest on solid inputs"* — **not** that the trade is likely to win,
+and not that the method is validated. There is deliberately no probability anywhere in the model,
+and a test asserts by reflection that no such field can be added without someone noticing.
+
+**A refusal keeps its row.** When the level engine won't propose a stop, the verdict is
+`Needs your levels`, and the row states the refusal reason verbatim plus exactly which fields you
+must supply. Hiding it would teach that the tool had finished when it had not.
+
+Rows are ordered best-founded first, so attention lands where the data is strongest. **Review →**
+opens the calculator with the numbers; a PASS also gets **Journal it**, which fills a journal entry
+straight from the row.
+
+Sorting, verdicts and reasoning are stored with the scan, so reopening it tomorrow — or after a
+restart — shows what the tool said at the time, with no further provider calls.
+
+Set `analysis.auto-analyse: false` to turn this off; the scan then falls back to the plain tier
+table described in 3b.
+
+### 3a. Where the levels come from
+
+The stop and target are computed from support and resistance in the daily candles:
 
 - **Stop** = nearest support zone below, minus `0.5 × ATR` — below the shelf rather than at it, so
   ordinary noise doesn't trigger it.
@@ -648,6 +684,25 @@ marketdata:
     earnings: 12h
     profile: 24h
 ```
+
+Auto-analysis of scan candidates (Phase 8):
+
+```yaml
+analysis:
+  auto-analyse: true    # false → the scan shows the plain tier table instead
+  account-size: 500     # the account the batch assumes; stated on the results page
+  risk-amount: 5.00     # dollars at risk per candidate
+```
+
+These are separate from `trading.rules.*` on purpose: those prefill the calculator form for a trade
+you are constructing by hand, while these size a whole scan at once and so must be visible on the
+page next to the counts they produce.
+
+**A note on account size.** The sizing rule is exact arithmetic, and at a $500 account risking $5 a
+trade, a stop 8% below a $200 stock puts risk-per-share above the entire risk budget — the honest
+answer is zero shares, and the verdict is a FAIL. That is correct, but it means much of the
+large-cap universe is structurally unreachable at that account size and most rows will read FAIL.
+Set `analysis.account-size` to your real account before reading much into the verdicts.
 
 `application-local.yml`, `application-secrets.yml`, and `.env` are git-ignored.
 

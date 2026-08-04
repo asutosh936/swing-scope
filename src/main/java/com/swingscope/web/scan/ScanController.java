@@ -58,10 +58,15 @@ public class ScanController {
     private final ScanJobService scanJobs;
     private final int twelveDataCallsPerMinute;
 
+    private final com.swingscope.config.AnalysisProperties analysisProperties;
+    private final com.swingscope.service.candidate.CandidateAnalysisService candidateAnalysis;
+
     public ScanController(TierService tierService, WatchlistService watchlist, TradingRules rules,
                           LevelSuggestionService levelSuggestions, LevelChartRenderer chartRenderer,
                           MarketDataService marketData, ScanJobService scanJobs,
-                          MarketDataProperties marketDataProperties) {
+                          MarketDataProperties marketDataProperties,
+                          com.swingscope.config.AnalysisProperties analysisProperties,
+                          com.swingscope.service.candidate.CandidateAnalysisService candidateAnalysis) {
         this.tierService = tierService;
         this.watchlist = watchlist;
         this.rules = rules;
@@ -70,13 +75,22 @@ public class ScanController {
         this.marketData = marketData;
         this.scanJobs = scanJobs;
         this.twelveDataCallsPerMinute = marketDataProperties.twelvedata().requestsPerMinute();
+        this.analysisProperties = analysisProperties;
+        this.candidateAnalysis = candidateAnalysis;
     }
 
     @GetMapping("/scan")
     public String form(Model model) {
         model.addAttribute("watchlist", watchlist.findAll());
         model.addAttribute("recentScans", scanJobs.recent());
+        addAnalysisAssumptions(model);
         return "scan";
+    }
+
+    /** The account the auto-analysis assumed. Shown beside the share counts, never implied. */
+    private void addAnalysisAssumptions(Model model) {
+        model.addAttribute("analysisAccountSize", analysisProperties.accountSize());
+        model.addAttribute("analysisRiskAmount", analysisProperties.riskAmount());
     }
 
     /**
@@ -121,6 +135,7 @@ public class ScanController {
                             + " are kept, and they are cleared on restart. Run it again.");
             model.addAttribute("watchlist", watchlist.findAll());
             model.addAttribute("recentScans", scanJobs.recent());
+            addAnalysisAssumptions(model);
             return "scan";
         }
 
@@ -132,6 +147,7 @@ public class ScanController {
         // Rough, from the pacing rate: 2 Twelve Data calls per ticker at the configured ceiling.
         model.addAttribute("secondsRemaining",
                 job.getEstimatedSecondsRemaining(2, twelveDataCallsPerMinute));
+        addAnalysisAssumptions(model);
         return "scan";
     }
 
@@ -268,7 +284,7 @@ public class ScanController {
                 ? request.tickers()
                 : TierService.parseTickers(request.raw());
         log.info("POST /api/scan with {} ticker(s)", tickers.size());
-        return tierService.scan(tickers);
+        return candidateAnalysis.analyseAll(tierService.scan(tickers));
     }
 
     /** Scan the saved watchlist without pasting anything. */
@@ -284,7 +300,7 @@ public class ScanController {
     public ScanResult scanWatchlistApi() {
         List<String> tickers = watchlist.tickers();
         log.info("POST /api/scan/watchlist — {} saved ticker(s)", tickers.size());
-        return tierService.scan(tickers);
+        return candidateAnalysis.analyseAll(tierService.scan(tickers));
     }
 
     @Operation(

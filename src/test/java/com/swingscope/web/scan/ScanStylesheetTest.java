@@ -45,6 +45,26 @@ class ScanStylesheetTest {
     }
 
     @Test
+    @DisplayName("a secondary button inside a table is legible — the override above would blacken it")
+    void secondaryButtonsInsideTablesKeepTheirLightInk() throws IOException {
+        String css = css();
+
+        // `.journal-table a.button-link` is (0,2,1) and outranks `.button-link.secondary` at (0,2,0),
+        // so without this rule the Journal-it button renders near-black on dark slate. That was a
+        // real defect, caught by reading computed styles in the browser rather than by eye.
+        int rule = css.indexOf(".journal-table a.button-link.secondary");
+
+        assertThat(rule)
+                .as("without this, a secondary table button is dark ink on a dark background")
+                .isGreaterThan(-1);
+        assertThat(css.substring(rule, css.indexOf('}', rule)))
+                .contains("var(--ink)");
+        assertThat(rule)
+                .as("it must come after the rule it is correcting")
+                .isGreaterThan(css.indexOf(".journal-table a.button-link {"));
+    }
+
+    @Test
     void theButtonBackgroundIsStillTheAccentColour() throws IOException {
         String css = css();
         int rule = css.indexOf(".button-link {");

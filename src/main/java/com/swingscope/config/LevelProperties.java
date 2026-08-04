@@ -19,6 +19,13 @@ import java.math.BigDecimal;
  * @param maxStopPercent          refuse a stop further than this % from entry — too wide to size
  * @param minBarsForSuggestion    below this much history, refuse rather than guess
  * @param lookbackBars            how many recent bars to consider; older structure goes stale
+ * @param fallbackToAtr           when no structure is found, propose a volatility-derived level
+ *                                rather than nothing. Adopted 2026-08-02 after the 6A.8 wide run
+ *                                found structure no better than {@code entry − 2×ATR} on a matched
+ *                                comparison — but highly variable by symbol, so structure is still
+ *                                preferred where it exists
+ * @param fallbackStopAtrMultiple how far below entry the fallback stop sits
+ * @param fallbackRewardMultiple  fallback target as a multiple of the risk distance
  */
 @ConfigurationProperties(prefix = "levels")
 public record LevelProperties(
@@ -29,7 +36,10 @@ public record LevelProperties(
         Integer minTouches,
         BigDecimal maxStopPercent,
         Integer minBarsForSuggestion,
-        Integer lookbackBars
+        Integer lookbackBars,
+        Boolean fallbackToAtr,
+        BigDecimal fallbackStopAtrMultiple,
+        BigDecimal fallbackRewardMultiple
 ) {
 
     public LevelProperties {
@@ -56,6 +66,15 @@ public record LevelProperties(
         }
         if (lookbackBars == null) {
             lookbackBars = 250;
+        }
+        if (fallbackToAtr == null) {
+            fallbackToAtr = true;
+        }
+        if (fallbackStopAtrMultiple == null) {
+            fallbackStopAtrMultiple = new BigDecimal("2");
+        }
+        if (fallbackRewardMultiple == null) {
+            fallbackRewardMultiple = new BigDecimal("2");
         }
     }
 }

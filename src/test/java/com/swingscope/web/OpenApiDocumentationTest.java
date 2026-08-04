@@ -63,6 +63,7 @@ class OpenApiDocumentationTest {
 
         assertThat(paths.fieldNames()).toIterable().containsExactlyInAnyOrder(
                 "/api/analyze",
+                "/api/backtest",
                 "/api/marketdata/{symbol}",
                 "/api/marketdata/{symbol}/levels",
                 "/api/marketdata/search",
@@ -100,13 +101,13 @@ class OpenApiDocumentationTest {
     }
 
     @Test
-    void groupsOperationsUnderTheFourFeatureTags() throws Exception {
+    void groupsOperationsUnderTheFeatureTags() throws Exception {
         JsonNode spec = spec();
 
         List<String> tagNames = new ArrayList<>();
         spec.get("tags").forEach(tag -> tagNames.add(tag.get("name").asText()));
         assertThat(tagNames).containsExactlyInAnyOrder(
-                "Calculator", "Market data", "Scan & watchlist", "Journal");
+                "Calculator", "Market data", "Scan & watchlist", "Journal", "Backtest");
 
         assertThat(spec.at("/paths/~1api~1analyze/post/tags/0").asText()).isEqualTo("Calculator");
         assertThat(spec.at("/paths/~1api~1journal~1stats/get/tags/0").asText()).isEqualTo("Journal");

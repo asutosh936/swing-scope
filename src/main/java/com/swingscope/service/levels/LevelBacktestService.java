@@ -4,6 +4,7 @@ import com.swingscope.config.LevelProperties;
 import com.swingscope.domain.backtest.BacktestOutcome;
 import com.swingscope.domain.backtest.BacktestReport;
 import com.swingscope.domain.backtest.BacktestSettings;
+import com.swingscope.domain.backtest.SplitBacktestReport;
 import com.swingscope.domain.backtest.BacktestTrade;
 import com.swingscope.domain.levels.LevelAnalysis;
 import com.swingscope.domain.marketdata.Candle;
@@ -52,6 +53,26 @@ public class LevelBacktestService {
         this.properties = properties;
     }
 
+    /** The structure-based proposer — what Phase 6 actually ships. */
+    public LevelProposer structureProposer() {
+        return new LevelProposer() {
+            @Override
+            public String name() {
+                return "structure";
+            }
+
+            @Override
+            public java.util.Optional<LevelProposer.ProposedLevels> propose(
+                    String symbol, List<Candle> asOf, BigDecimal price) {
+                LevelAnalysis analysis = suggestions.analyse(symbol, asOf, price);
+                return analysis.isComplete()
+                        ? java.util.Optional.of(new LevelProposer.ProposedLevels(
+                                analysis.stop().value(), analysis.target().value()))
+                        : java.util.Optional.empty();
+            }
+        };
+    }
+
     public BacktestReport replay(String symbol, List<Candle> bars) {
         return replay(symbol, bars, BacktestSettings.defaults());
     }
@@ -62,6 +83,11 @@ public class LevelBacktestService {
      * @param bars daily candles, oldest first — the full history to replay over
      */
     public BacktestReport replay(String symbol, List<Candle> bars, BacktestSettings settings) {
+        return replay(symbol, bars, settings, structureProposer());
+    }
+
+    public BacktestReport replay(String symbol, List<Candle> bars, BacktestSettings settings,
+                                 LevelProposer proposer) {
         List<BacktestTrade> trades = new ArrayList<>();
         if (bars == null || bars.isEmpty()) {
             return BacktestReport.of(symbol, trades, settings.timeStopBars());
@@ -72,7 +98,7 @@ public class LevelBacktestService {
         int lastEntry = bars.size() - 2;
 
         for (int i = firstEntry; i <= lastEntry; i++) {
-            trades.add(replayOne(symbol, bars, i, settings));
+            trades.add(replayOne(symbol, bars, i, settings, proposer));
         }
 
         BacktestReport report = BacktestReport.of(symbol, trades, settings.timeStopBars());
@@ -84,20 +110,63 @@ public class LevelBacktestService {
         return report;
     }
 
+    /**
+     * Replays once, then reports the older and newer halves separately (6A.6).
+     *
+     * <p>The split is applied to the <em>trades</em>, by entry bar, not to the input series. Every
+     * entry keeps its full preceding history, so an out-of-sample entry is computed exactly as it
+     * would have been live. Splitting the bars instead would starve the first out-of-sample entries
+     * of lookback and make the held-back half look artificially worse.
+     */
+    public SplitBacktestReport replaySplit(String symbol, List<Candle> bars,
+                                           BacktestSettings settings, LevelProposer proposer,
+                                           BigDecimal inSampleFraction) {
+        BacktestReport full = replay(symbol, bars, settings, proposer);
+        int barCount = bars == null ? 0 : bars.size();
+        int splitIndex = inSampleFraction
+                .multiply(BigDecimal.valueOf(barCount))
+                .setScale(0, RoundingMode.DOWN)
+                .intValue();
+
+        List<BacktestTrade> in = full.trades().stream()
+                .filter(t -> t.entryBarIndex() < splitIndex).toList();
+        List<BacktestTrade> out = full.trades().stream()
+                .filter(t -> t.entryBarIndex() >= splitIndex).toList();
+
+        SplitBacktestReport report = new SplitBacktestReport(symbol,
+                BacktestReport.of(symbol, in, settings.timeStopBars()),
+                BacktestReport.of(symbol, out, settings.timeStopBars()),
+                splitIndex, inSampleFraction);
+
+        log.info("Split backtest {} [{}]: in-sample {}R over {} trades, out-of-sample {}R over {} "
+                        + "(~{} non-overlapping) — degradation {}R",
+                symbol, proposer.name(),
+                report.inSample().expectancyR(), report.inSample().resolvedTrades(),
+                report.outOfSample().expectancyR(), report.outOfSample().resolvedTrades(),
+                report.outOfSample().nonOverlappingEstimate(), report.degradationR());
+        return report;
+    }
+
     /** One entry: compute levels as of bar {@code i}, then walk forward to resolution. */
     BacktestTrade replayOne(String symbol, List<Candle> bars, int i, BacktestSettings settings) {
+        return replayOne(symbol, bars, i, settings, structureProposer());
+    }
+
+    BacktestTrade replayOne(String symbol, List<Candle> bars, int i, BacktestSettings settings,
+                            LevelProposer proposer) {
         Candle signalBar = bars.get(i);
 
         // THE no-lookahead line: only bars up to and including i are visible.
         List<Candle> asOf = bars.subList(0, i + 1);
-        LevelAnalysis analysis = suggestions.analyse(symbol, asOf, signalBar.close());
+        java.util.Optional<LevelProposer.ProposedLevels> proposed =
+                proposer.propose(symbol, asOf, signalBar.close());
 
-        if (!analysis.isComplete()) {
+        if (proposed.isEmpty()) {
             return BacktestTrade.noSuggestion(symbol, i, signalBar.date());
         }
 
-        BigDecimal stop = analysis.stop().value();
-        BigDecimal target = analysis.target().value();
+        BigDecimal stop = proposed.get().stop();
+        BigDecimal target = proposed.get().target();
 
         // Where the fill happens, and from which bar the trade is live.
         int firstLiveBar;

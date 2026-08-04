@@ -79,9 +79,18 @@ public class ScanRun {
         this.requested = result.requested();
         this.warnings = String.join(" | ", result.warnings());
         this.rows.clear();
+        // Phase 8: the analysis is keyed by symbol so it can ride along on the matching row.
+        java.util.Map<String, com.swingscope.domain.candidate.CandidateRow> analyses =
+                result.candidates().stream().collect(java.util.stream.Collectors.toMap(
+                        com.swingscope.domain.candidate.CandidateRow::symbol, c -> c,
+                        (a, b) -> a));
         for (TieredStock stock : result.stocks()) {
             ScanRunRow row = ScanRunRow.from(stock);
             row.setRun(this);
+            com.swingscope.domain.candidate.CandidateRow analysis = analyses.get(stock.symbol());
+            if (analysis != null) {
+                row.setAnalysis(analysis);
+            }
             this.rows.add(row);
         }
     }
@@ -97,7 +106,17 @@ public class ScanRun {
         List<TieredStock> stocks = rows.stream().map(ScanRunRow::toTieredStock).toList();
         List<String> parsedWarnings = warnings == null || warnings.isBlank()
                 ? List.of() : List.of(warnings.split(" \\| "));
-        return ScanResult.of(stocks, requested, elapsedMillis, parsedWarnings);
+        // Ordering is re-derived rather than stored: best-founded first, as when the scan ran.
+        List<com.swingscope.domain.candidate.CandidateRow> candidates = rows.stream()
+                .map(ScanRunRow::toCandidateRow)
+                .filter(java.util.Objects::nonNull)
+                .sorted(java.util.Comparator
+                        .comparingInt(com.swingscope.domain.candidate.CandidateRow::confidenceMet)
+                        .reversed()
+                        .thenComparing(c -> c.verdict().ordinal()))
+                .toList();
+        return ScanResult.of(stocks, requested, elapsedMillis, parsedWarnings)
+                .withCandidates(candidates);
     }
 
     public List<String> tickerList() {

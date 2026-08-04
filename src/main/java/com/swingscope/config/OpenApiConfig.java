@@ -24,6 +24,7 @@ public class OpenApiConfig {
     public static final String TAG_SCAN = "Scan & watchlist";
     public static final String TAG_JOURNAL = "Journal";
     public static final String TAG_MARKET_DATA = "Market data";
+    public static final String TAG_BACKTEST = "Backtest";
 
     @Bean
     public OpenAPI swingScopeOpenApi() {
@@ -81,6 +82,10 @@ public class OpenApiConfig {
                         new Tag().name(TAG_SCAN)
                                 .description("Tier a pasted ticker list against the mechanical filters, "
                                         + "and read the saved watchlist."),
+                        new Tag().name(TAG_BACKTEST)
+                                .description("Measures whether the suggested levels would have "
+                                        + "worked, by replaying them over history. Ranked on "
+                                        + "out-of-sample expectancy against a naive ATR baseline."),
                         new Tag().name(TAG_JOURNAL)
                                 .description("Read the trade journal and the running scorecard. "
                                         + "Read-only: writes go through the UI.")));

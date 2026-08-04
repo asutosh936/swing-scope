@@ -82,6 +82,19 @@ levels:
   max-stop-percent: 15            # refuse a stop wider than this
   min-bars-for-suggestion: 60     # below this much history, refuse rather than guess
   lookback-bars: 250
+  # 6A.8 (2026-08-02): the wide backtest found structure no better than entry-2xATR on a matched
+  # comparison, but very variable by symbol. So structure is preferred where found, with a clearly
+  # labelled volatility fallback where it is not. Set false to refuse instead of falling back.
+  fallback-to-atr: true
+  fallback-stop-atr-multiple: 2
+  fallback-reward-multiple: 2
+
+# Phase 8 — auto-analysis of scan candidates. The account assumed for the batch; stated on the
+# results page, because a share count means nothing without it.
+analysis:
+  auto-analyse: true
+  account-size: 500
+  risk-amount: 5.00
 
 logging:
   level:

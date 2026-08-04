@@ -4,6 +4,7 @@ import com.swingscope.domain.scan.ScanJob;
 import com.swingscope.domain.scan.ScanResult;
 import com.swingscope.domain.scan.ScanRun;
 import com.swingscope.repository.ScanRunRepository;
+import com.swingscope.service.candidate.CandidateAnalysisService;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,6 +48,7 @@ public class ScanJobService {
 
     private final TierService tierService;
     private final ScanRunRepository runs;
+    private final CandidateAnalysisService candidateAnalysis;
     private final ExecutorService executor =
             Executors.newSingleThreadExecutor(r -> {
                 Thread thread = new Thread(r, "scan-worker");
@@ -62,9 +64,11 @@ public class ScanJobService {
         }
     };
 
-    public ScanJobService(TierService tierService, ScanRunRepository runs) {
+    public ScanJobService(TierService tierService, ScanRunRepository runs,
+                          CandidateAnalysisService candidateAnalysis) {
         this.tierService = tierService;
         this.runs = runs;
+        this.candidateAnalysis = candidateAnalysis;
     }
 
     /** Queues a scan and returns immediately with its id. */
@@ -83,7 +87,8 @@ public class ScanJobService {
     private void run(ScanJob job) {
         ScanRun record = new ScanRun(job.getId(), job.getTickers(), job.getStartedAt());
         try {
-            ScanResult result = tierService.scan(job.getTickers(), job::progress);
+            ScanResult result = candidateAnalysis.analyseAll(
+                    tierService.scan(job.getTickers(), job::progress));
             // Store BEFORE flipping the job to complete. Anything that reacts to completion — a
             // redirect to the results page, a test awaiting the worker — must find the record
             // already durable, or it races the write.

@@ -1,5 +1,6 @@
 package com.swingscope.service.scan;
 
+import com.swingscope.domain.candidate.CandidateRow;
 import com.swingscope.domain.marketdata.MarketSnapshot;
 import com.swingscope.domain.scan.ScanJob;
 import com.swingscope.domain.scan.ScanResult;
@@ -103,6 +104,52 @@ class ScanHistoryTest {
         assertThat(rebuilt.stocks().get(0).reason()).isEqualTo(live.stocks().get(0).reason());
         assertThat(rebuilt.stocks().get(0).price())
                 .isEqualByComparingTo(live.stocks().get(0).price());
+    }
+
+    @Test
+    @DisplayName("Phase 8: the auto-analysis survives the round trip, so a reloaded scan is not blank")
+    void storedScansKeepTheirAnalysis() {
+        String id = runScan("AAPL", "MSFT");
+        ScanResult live = scanJobs.find(id).orElseThrow().getResult();
+        assertThat(live.candidates()).isNotEmpty();
+
+        ScanResult rebuilt = runs.findById(id).orElseThrow().toResult();
+
+        assertThat(rebuilt.candidates()).hasSameSizeAs(live.candidates());
+        assertThat(rebuilt.passCount()).isEqualTo(live.passCount());
+        assertThat(rebuilt.needsLevelsCount()).isEqualTo(live.needsLevelsCount());
+
+        CandidateRow before = live.candidates().get(0);
+        CandidateRow after = rebuilt.candidates().get(0);
+        assertThat(after.symbol()).isEqualTo(before.symbol());
+        assertThat(after.tier()).isEqualTo(before.tier());
+        assertThat(after.verdict()).isEqualTo(before.verdict());
+        assertThat(after.grade()).isEqualTo(before.grade());
+        assertThat(after.confidenceMet()).isEqualTo(before.confidenceMet());
+        assertThat(after.confidenceTotal()).isEqualTo(before.confidenceTotal());
+        assertThat(after.confidenceDetail()).isEqualTo(before.confidenceDetail());
+        // The reasoning text is the point of keeping the row at all.
+        assertThat(after.needed()).isEqualTo(before.needed());
+        assertThat(after.weaknesses()).isEqualTo(before.weaknesses());
+        assertThat(after.failReason()).isEqualTo(before.failReason());
+    }
+
+    @Test
+    @DisplayName("rows that were never analysed restore as null rather than as an empty verdict")
+    void unanalysedRowsRestoreAsAbsent() {
+        // A SKIP row is not a candidate, so nothing was ever computed for it.
+        when(marketData.getSnapshot(anyString(), anyBoolean())).thenAnswer(invocation ->
+                new MarketSnapshot(invocation.getArgument(0), new BigDecimal("30.00"),
+                        new BigDecimal("-1.00"), new BigDecimal("31.00"), new BigDecimal("32.00"),
+                        new BigDecimal("35.00"), 5_000_000L, 5_000_000L,
+                        new BigDecimal("3000000"), null, false, false, false, 250, List.of()));
+
+        String id = runScan("DOWN");
+        ScanRun stored = runs.findById(id).orElseThrow();
+
+        assertThat(stored.getRows()).hasSize(1);
+        assertThat(stored.getRows().get(0).toCandidateRow()).isNull();
+        assertThat(stored.toResult().candidates()).isEmpty();
     }
 
     @Test

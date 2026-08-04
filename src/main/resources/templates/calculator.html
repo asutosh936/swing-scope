@@ -48,8 +48,8 @@
                     <strong>Stop</strong>
                     <span th:if="${levels.stop.present}">
                         <b th:text="${'$' + levels.stop.value}">$38.90</b>
-                        <span class="pill" th:classappend="'pill-conf-' + ${levels.stop.confidence.name().toLowerCase()}"
-                              th:text="${levels.stop.confidence}">HIGH</span>
+                        <span class="pill" th:classappend="${levels.stop.fallback} ? 'pill-fallback' : 'pill-conf-' + ${levels.stop.confidence.name().toLowerCase()}"
+                              th:text="${levels.stop.fallback} ? 'FALLBACK' : ${levels.stop.confidence}">HIGH</span>
                         <em th:text="${levels.stop.rationale}"></em>
                     </span>
                     <span th:unless="${levels.stop.present}" class="muted refusal">
@@ -60,8 +60,8 @@
                     <strong>Target</strong>
                     <span th:if="${levels.target.present}">
                         <b th:text="${'$' + levels.target.value}">$43.60</b>
-                        <span class="pill" th:classappend="'pill-conf-' + ${levels.target.confidence.name().toLowerCase()}"
-                              th:text="${levels.target.confidence}">MEDIUM</span>
+                        <span class="pill" th:classappend="${levels.target.fallback} ? 'pill-fallback' : 'pill-conf-' + ${levels.target.confidence.name().toLowerCase()}"
+                              th:text="${levels.target.fallback} ? 'FALLBACK' : ${levels.target.confidence}">MEDIUM</span>
                         <em th:text="${levels.target.rationale}"></em>
                     </span>
                     <span th:unless="${levels.target.present}" class="muted refusal">
@@ -71,6 +71,10 @@
             </ul>
 
             <p class="level-caveat">
+                <strong th:if="${levels.stop.fallback or levels.target.fallback}">
+                    At least one level below is a <em>fallback</em> — no clean shelf was found, so it
+                    was derived from volatility alone and ignores the chart. Check it yourself.
+                </strong>
                 These are arithmetic over past price, not a recommendation. Support and resistance are
                 not objective — a different pivot setting gives different levels. Check them against
                 the chart before you accept them.

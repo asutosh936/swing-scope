@@ -15,12 +15,24 @@ public record ScanResult(
         Map<Tier, List<TieredStock>> byTier,
         int requested,
         long elapsedMillis,
-        List<String> warnings
+        List<String> warnings,
+        /**
+         * Phase 8: the full analysis for each tradeable candidate, best-founded first. Empty when
+         * auto-analysis is off — the tiering above is unaffected either way.
+         */
+        List<com.swingscope.domain.candidate.CandidateRow> candidates
 ) {
 
     public ScanResult {
         stocks = List.copyOf(stocks);
         warnings = warnings == null ? List.of() : List.copyOf(warnings);
+        candidates = candidates == null ? List.of() : List.copyOf(candidates);
+    }
+
+    /** The same result with candidate analyses attached. */
+    public ScanResult withCandidates(
+            List<com.swingscope.domain.candidate.CandidateRow> analysed) {
+        return new ScanResult(stocks, byTier, requested, elapsedMillis, warnings, analysed);
     }
 
     /**
@@ -40,7 +52,7 @@ public record ScanResult(
                 .collect(java.util.stream.Collectors.groupingBy(TieredStock::tier,
                         java.util.LinkedHashMap::new, java.util.stream.Collectors.toList()));
 
-        return new ScanResult(sorted, byTier, requested, elapsedMillis, warnings);
+        return new ScanResult(sorted, byTier, requested, elapsedMillis, warnings, List.of());
     }
 
     public int count(Tier tier) {
@@ -50,5 +62,28 @@ public record ScanResult(
     /** Tier 1 and 2 — the names actually worth charting. */
     public List<TieredStock> tradeable() {
         return stocks.stream().filter(s -> s.tier().isTradeable()).toList();
+    }
+
+    /**
+     * The analysed candidates in one tier, best-founded first (Phase 8). Empty when auto-analysis
+     * is off or the scan predates it, in which case the view falls back to the plain tier table.
+     */
+    public List<com.swingscope.domain.candidate.CandidateRow> candidatesFor(Tier tier) {
+        return candidates.stream().filter(c -> c.tier() == tier).toList();
+    }
+
+    /** How many analysed candidates cleared the ratio and sizing rules. */
+    public long passCount() {
+        return candidates.stream()
+                .filter(c -> c.verdict() == com.swingscope.domain.candidate.CandidateVerdict.PASS)
+                .count();
+    }
+
+    /** How many need a human to read the chart because the engine would not guess. */
+    public long needsLevelsCount() {
+        return candidates.stream()
+                .filter(c -> c.verdict()
+                        == com.swingscope.domain.candidate.CandidateVerdict.NEEDS_LEVELS)
+                .count();
     }
 }

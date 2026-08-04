@@ -42,7 +42,8 @@ class LevelChartRendererTest {
     }
 
     private static LevelSuggestion at(String value) {
-        return new LevelSuggestion(new BigDecimal(value), "because", LevelSuggestion.Confidence.HIGH, null);
+        return new LevelSuggestion(new BigDecimal(value), "because", LevelSuggestion.Confidence.HIGH,
+                null, LevelSuggestion.Source.STRUCTURE);
     }
 
     @Test

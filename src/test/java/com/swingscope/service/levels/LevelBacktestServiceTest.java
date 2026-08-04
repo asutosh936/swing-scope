@@ -19,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class LevelBacktestServiceTest {
 
     private final LevelProperties properties =
-            new LevelProperties(null, null, null, null, null, null, null, null);
+            new LevelProperties(null, null, null, null, null, null, null, null, null, null, null);
     private final AtrCalculator atr = new AtrCalculator();
     private final PriceLevelService levels =
             new PriceLevelService(new SwingPointDetector(), atr, properties);

@@ -112,6 +112,108 @@
                 <span class="muted" th:text="${group.key.description}">Trend intact</span>
             </div>
 
+            <th:block th:with="analysed=${result.candidatesFor(group.key)}">
+            <th:block th:if="${!#lists.isEmpty(analysed)}">
+
+            <p class="tier-hint">
+                Each row below was planned and sized automatically: stop and target from the level
+                engine, ratio and share count from the calculator, at
+                <strong th:text="${'$' + #numbers.formatDecimal(analysisAccountSize, 1, 'COMMA', 0, 'POINT')}">$500</strong>
+                account risking
+                <strong th:text="${'$' + #numbers.formatDecimal(analysisRiskAmount, 1, 'COMMA', 2, 'POINT')}">$5.00</strong>
+                per trade.
+                <strong>Confidence describes how well-founded the numbers are — how much data and
+                structure they rest on. It is not a probability that the trade wins.</strong>
+                The method itself is still unvalidated; see the note under the table.
+            </p>
+
+            <table class="journal-table">
+                <thead>
+                <tr>
+                    <th>Ticker</th>
+                    <th class="num">Entry</th>
+                    <th class="num">Stop</th>
+                    <th class="num">Target</th>
+                    <th class="num">R:R</th>
+                    <th class="num">Shares</th>
+                    <th>Confidence</th>
+                    <th>Verdict</th>
+                    <th>Action</th>
+                </tr>
+                </thead>
+                <tbody>
+                <th:block th:each="c : ${analysed}">
+                <tr>
+                    <td><strong th:text="${c.symbol}">VZ</strong></td>
+                    <td class="num" th:text="${c.entry != null} ? ${'$' + #numbers.formatDecimal(c.entry, 1, 'COMMA', 2, 'POINT')} : '—'">$40.00</td>
+                    <td class="num" th:text="${c.stop != null} ? ${'$' + #numbers.formatDecimal(c.stop, 1, 'COMMA', 2, 'POINT')} : '—'">$38.00</td>
+                    <td class="num" th:text="${c.target != null} ? ${'$' + #numbers.formatDecimal(c.target, 1, 'COMMA', 2, 'POINT')} : '—'">$44.00</td>
+                    <td class="num" th:text="${c.ratio != null} ? ${c.ratio + ':1'} : '—'">2.0:1</td>
+                    <td class="num" th:text="${c.shares != null} ? ${c.shares} : '—'">2</td>
+                    <td>
+                        <span class="confidence-badge"
+                              th:classappend="${'confidence-' + c.grade.name().toLowerCase()}"
+                              th:text="|${c.grade} ${c.confidenceMet}/${c.confidenceTotal}|"
+                              th:title="${c.confidenceDetail}">HIGH 5/6</span>
+                    </td>
+                    <td>
+                        <span class="verdict-badge"
+                              th:classappend="${'verdict-' + c.verdict.name().toLowerCase()}"
+                              th:text="${c.verdict.label}">Passes</span>
+                    </td>
+                    <td>
+                        <a class="button-link small"
+                           th:href="@{/plan(ticker=${c.symbol}, entry=${c.entry},
+                                           scanId=${job != null} ? ${job.id} : null)}"
+                           th:title="|Open ${c.symbol} in the calculator with these numbers filled in, so you can adjust them against the chart|"
+                           th:text="${c.needsLevels()} ? 'Add levels →' : 'Review →'">Review →</a>
+                        <!-- 8.8: only a PASS gets a one-click log. Journalling a row the tool
+                             already rejected would put the rule check on the wrong side of the
+                             decision. A rejected trade you still want to take goes via Review. -->
+                        <a th:if="${c.verdict.name() == 'PASS'}" class="button-link small secondary"
+                           th:href="@{/journal/new(ticker=${c.symbol}, entry=${c.entry},
+                                                   stop=${c.stop}, target=${c.target},
+                                                   ratio=${c.ratio}, shares=${c.shares})}"
+                           th:title="|Log ${c.symbol} in the journal with these numbers already filled in|">
+                            Journal it</a>
+                    </td>
+                </tr>
+                <!-- A refusal keeps its row: the reason, and exactly what you must supply. -->
+                <tr th:if="${c.needsLevels()}" class="detail-row">
+                    <td colspan="9">
+                        <span class="muted">Not planned automatically —</span>
+                        <span th:each="n,i : ${c.needed}"
+                              th:text="${n} + (${i.last} ? '' : '; ')">reason</span>
+                    </td>
+                </tr>
+                <!-- Which rule broke. Without this, a FAIL is a dead end. -->
+                <tr th:if="${c.failed()}" class="detail-row">
+                    <td colspan="9" th:text="${c.failReason}">ratio below the minimum</td>
+                </tr>
+                <!-- Weak factors are named, so a MEDIUM is actionable rather than mysterious. -->
+                <tr th:if="${!c.needsLevels() and !#lists.isEmpty(c.weaknesses)}"
+                    class="detail-row">
+                    <td colspan="9">
+                        <span class="muted">Confidence held back by:</span>
+                        <span th:each="w,i : ${c.weaknesses}"
+                              th:text="${w} + (${i.last} ? '' : '; ')">factor</span>
+                    </td>
+                </tr>
+                </th:block>
+                </tbody>
+            </table>
+
+            <p class="disclaimer">
+                A high confidence score means the stop and target were well-derived — deep history,
+                a tested price zone, complete data — <strong>not</strong> that the method is proven.
+                Backtesting (Phase 6A) found these structural levels no better than a plain
+                volatility rule on a matched comparison. Check every row against the chart before
+                risking money.
+            </p>
+            </th:block>
+
+            <th:block th:if="${#lists.isEmpty(analysed)}">
+
             <p class="tier-hint" th:if="${group.key.tradeable}">
                 <strong>Plan this trade</strong> opens the calculator with the ticker and entry
                 already filled in from the current price — you add the stop and target you read off
@@ -157,6 +259,8 @@
                 </tr>
                 </tbody>
             </table>
+            </th:block>
+            </th:block>
         </section>
     </th:block>
 

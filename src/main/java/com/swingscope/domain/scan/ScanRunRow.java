@@ -11,8 +11,13 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 
+import com.swingscope.domain.candidate.AnalysisConfidence;
+import com.swingscope.domain.candidate.CandidateRow;
+import com.swingscope.domain.candidate.CandidateVerdict;
+
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 
 /**
  * One ticker's row within a stored scan — the facts as they stood at scan time.
@@ -76,6 +81,45 @@ public class ScanRunRow {
 
     private boolean earningsWithin3Days;
 
+    // ---- Phase 8: the auto-analysis, stored so a reloaded scan shows what it showed at the time.
+    // All nullable: rows outside Tier 1/2 are never analysed, and scans stored before Phase 8 have
+    // none of this. A null verdict is the signal to fall back to the plain tier table.
+
+    @Enumerated(EnumType.STRING)
+    @Column(length = 20)
+    private CandidateVerdict verdict;
+
+    private BigDecimal suggestedStop;
+
+    private BigDecimal suggestedTarget;
+
+    private BigDecimal ratio;
+
+    private Integer shares;
+
+    @Enumerated(EnumType.STRING)
+    @Column(length = 10)
+    private AnalysisConfidence.Grade confidenceGrade;
+
+    private Integer confidenceMet;
+
+    private Integer confidenceTotal;
+
+    @Column(length = 1000)
+    private String confidenceDetail;
+
+    /** Display strings, joined — see CandidateRow for why these are not rebuilt from objects. */
+    @Column(length = 1000)
+    private String weaknesses;
+
+    @Column(length = 1000)
+    private String needed;
+
+    @Column(length = 500)
+    private String failReason;
+
+    private static final String SEP = " | ";
+
     protected ScanRunRow() {
         // for JPA
     }
@@ -99,6 +143,42 @@ public class ScanRunRow {
         row.bigMover = stock.bigMover();
         row.earningsWithin3Days = stock.earningsWithin3Days();
         return row;
+    }
+
+    /** Attaches the auto-analysis to an already-built row. */
+    public void setAnalysis(CandidateRow c) {
+        this.verdict = c.verdict();
+        this.suggestedStop = c.stop();
+        this.suggestedTarget = c.target();
+        this.ratio = c.ratio();
+        this.shares = c.shares();
+        this.confidenceGrade = c.grade();
+        this.confidenceMet = c.confidenceMet();
+        this.confidenceTotal = c.confidenceTotal();
+        this.confidenceDetail = truncate(c.confidenceDetail(), 1000);
+        this.weaknesses = truncate(String.join(SEP, c.weaknesses()), 1000);
+        this.needed = truncate(String.join(SEP, c.needed()), 1000);
+        this.failReason = truncate(c.failReason(), 500);
+    }
+
+    /** Null for a row that was never analysed — the view then falls back to the plain table. */
+    public CandidateRow toCandidateRow() {
+        if (verdict == null) {
+            return null;
+        }
+        return new CandidateRow(symbol, tier, price, suggestedStop, suggestedTarget, ratio, shares,
+                verdict, confidenceGrade,
+                confidenceMet == null ? 0 : confidenceMet,
+                confidenceTotal == null ? 0 : confidenceTotal,
+                confidenceDetail, split(weaknesses), split(needed), failReason);
+    }
+
+    private static List<String> split(String joined) {
+        return joined == null || joined.isBlank() ? List.of() : List.of(joined.split(" \\| "));
+    }
+
+    private static String truncate(String value, int max) {
+        return value == null || value.length() <= max ? value : value.substring(0, max);
     }
 
     public TieredStock toTieredStock() {

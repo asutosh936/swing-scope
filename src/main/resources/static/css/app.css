@@ -8,6 +8,8 @@
     --accent: #57a6ff;
     --pass: #34c98b;
     --fail: #f4655f;
+    /* Phase 8: a caution that is neither a pass nor a failure — levels needed, confidence held back. */
+    --warn: #e9b34a;
     --radius: 10px;
 }
 
@@ -162,6 +164,36 @@ button:hover { filter: brightness(1.08); }
 
 .badge-pass { background: rgba(52, 201, 139, 0.16); color: var(--pass); }
 .badge-fail { background: rgba(244, 101, 95, 0.16); color: var(--fail); }
+
+/* Phase 8 — scan rows carry a verdict and a confidence grade. Deliberately quieter than .badge:
+   these describe how the numbers were derived, and should not read as a recommendation. */
+.confidence-badge,
+.verdict-badge {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    padding: 3px 9px;
+    border-radius: 999px;
+    white-space: nowrap;
+    cursor: help;
+}
+
+.confidence-high { background: rgba(52, 201, 139, 0.14); color: var(--pass); }
+.confidence-medium { background: rgba(233, 179, 74, 0.16); color: var(--warn); }
+.confidence-low { background: rgba(244, 101, 95, 0.14); color: var(--fail); }
+
+.verdict-badge { cursor: default; }
+.verdict-pass { background: rgba(52, 201, 139, 0.16); color: var(--pass); }
+.verdict-fail { background: rgba(244, 101, 95, 0.16); color: var(--fail); }
+.verdict-needs_levels { background: rgba(233, 179, 74, 0.16); color: var(--warn); }
+
+/* The explanation under a row — why confidence is held back, or what you must supply. */
+.journal-table tr.detail-row td {
+    padding-top: 0;
+    border-top: 0;
+    font-size: 0.82rem;
+    color: var(--ink-dim);
+}
 
 .reason {
     width: 100%;
@@ -400,6 +432,9 @@ button.danger {
 /* A button inside a table is still a button. Without this, the generic link colour above wins on
    specificity and paints the label the same blue as the button's own background — invisible. */
 .journal-table a.button-link { color: #0a1220; }
+/* ...but a secondary button inside a table is dark-on-dark unless it wins here too. The rule above
+   is (0,2,1) and beats the (0,2,0) `.button-link.secondary`, so that has to be restated. */
+.journal-table a.button-link.secondary { color: var(--ink); }
 .journal-table tbody tr:hover { background: var(--panel-2); }
 
 .pill {
@@ -645,3 +680,6 @@ textarea:focus {
 .back-to-scan { margin-bottom: 16px; font-size: 0.85rem; }
 .back-to-scan a { color: var(--accent); text-decoration: none; font-weight: 600; }
 .back-to-scan a:hover { text-decoration: underline; }
+
+/* A fallback level is volatility-derived, not structural — it must not look like a confidence grade. */
+.pill-fallback { background: rgba(244, 101, 95, 0.16); color: var(--fail); }

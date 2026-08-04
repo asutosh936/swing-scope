@@ -95,6 +95,22 @@ class ScanControllerTest {
     }
 
     @Test
+    @DisplayName("the JSON scan carries the same analysis the page shows — the two must not drift")
+    void scanApiIncludesTheAutoAnalysis() throws Exception {
+        mockMvc.perform(post("/api/scan").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"raw\":\"AAPL DOWN\"}"))
+                .andExpect(status().isOk())
+                // AAPL is Tier 1 and so analysed; DOWN is a Skip and so is not a candidate at all.
+                .andExpect(jsonPath("$.candidates.length()").value(1))
+                .andExpect(jsonPath("$.candidates[0].symbol").value("AAPL"))
+                .andExpect(jsonPath("$.candidates[0].verdict").exists())
+                .andExpect(jsonPath("$.candidates[0].grade").exists())
+                // and never a probability, on this surface either
+                .andExpect(jsonPath("$.candidates[0].probability").doesNotExist())
+                .andExpect(jsonPath("$.candidates[0].winRate").doesNotExist());
+    }
+
+    @Test
     void scanApiAlsoAcceptsAnExplicitList() throws Exception {
         mockMvc.perform(post("/api/scan").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"tickers\":[\"AAPL\"]}"))
@@ -182,14 +198,48 @@ class ScanControllerTest {
         String html = result.getResponse().getContentAsString();
         assertThat(html)
                 .contains("Tier 1").contains("Tier 2").contains("Skip")
-                .contains("Plan this trade")
-                .contains("opens the calculator with the ticker and entry")   // the hint explains it
-                .contains("title=\"Size a trade on AAPL")                     // and so does the tooltip
                 .contains("below the 50-EMA");
 
         ScanResult scan = (ScanResult) result.getModelAndView().getModel().get("result");
         assertThat(scan.count(Tier.TIER1)).isEqualTo(1);
         assertThat(scan.tradeable()).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("Phase 8: tradeable rows are analysed and sized without a second click")
+    void tradeableRowsCarryTheirOwnAnalysis() throws Exception {
+        MvcResult result = runScanAndOpenResults("AAPL, THIN, DOWN");
+
+        String html = result.getResponse().getContentAsString();
+        assertThat(html)
+                // the columns the auto-analysis adds
+                .contains("R:R").contains("Shares").contains("Confidence").contains("Verdict")
+                // the account the share counts assume — a count means nothing without it
+                .contains("account risking")
+                // and the standing caveat, on the page rather than only in the plan document
+                .contains("not</strong> that the method is proven");
+
+        ScanResult scan = (ScanResult) result.getModelAndView().getModel().get("result");
+        assertThat(scan.candidatesFor(Tier.TIER1)).hasSize(1);
+        assertThat(scan.candidatesFor(Tier.SKIP)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("no candles means the row says so and asks for the levels — it does not invent them")
+    void refusedLevelsRenderTheirReason() throws Exception {
+        // getDailyCandles is unstubbed here, so the level engine has nothing to work from.
+        MvcResult result = runScanAndOpenResults("AAPL");
+
+        String html = result.getResponse().getContentAsString();
+        assertThat(html)
+                .contains("Needs your levels")
+                .contains("Not planned automatically")
+                .contains("bars of history")      // the engine's own refusal reason, verbatim
+                .contains("Add levels");   // and the action that hands it to the human
+
+        ScanResult scan = (ScanResult) result.getModelAndView().getModel().get("result");
+        assertThat(scan.needsLevelsCount()).isEqualTo(1);
+        assertThat(scan.passCount()).isZero();
     }
 
     @Test

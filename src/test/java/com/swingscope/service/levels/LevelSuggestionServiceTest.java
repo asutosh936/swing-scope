@@ -21,12 +21,18 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class LevelSuggestionServiceTest {
 
-    private final LevelProperties properties = new LevelProperties(null, null, null, null, null, null, null, null);
+    private final LevelProperties properties = new LevelProperties(null, null, null, null, null, null, null, null, null, null, null);
     private final SwingPointDetector detector = new SwingPointDetector();
     private final AtrCalculator atr = new AtrCalculator();
     private final PriceLevelService levels = new PriceLevelService(detector, atr, properties);
     private final LevelSuggestionService service =
             new LevelSuggestionService(null, levels, atr, properties);
+
+    /** Fallback off — the pre-6A.8 behaviour, still supported and still tested. */
+    private final LevelProperties noFallback =
+            new LevelProperties(null, null, null, null, null, null, null, null, false, null, null);
+    private final LevelSuggestionService strictService = new LevelSuggestionService(
+            null, new PriceLevelService(detector, atr, noFallback), atr, noFallback);
 
     private static Candle bar(LocalDate date, double low, double high, double close) {
         return new Candle(date, BigDecimal.valueOf(close), BigDecimal.valueOf(high),
@@ -145,29 +151,67 @@ class LevelSuggestionServiceTest {
             bars.add(bar(date.plusDays(i), p - 0.5, p + 0.5, p));
         }
 
-        LevelAnalysis analysis = service.analyse("TEST", bars, BigDecimal.valueOf(200));
+        // 6A.8: with the hybrid on, no structure means a clearly-marked volatility fallback.
+        LevelAnalysis withFallback = service.analyse("TEST", bars, BigDecimal.valueOf(200));
+        assertThat(withFallback.stop().isPresent()).isTrue();
+        assertThat(withFallback.stop().isFallback()).isTrue();
+        assertThat(withFallback.stop().confidence()).isEqualTo(LevelSuggestion.Confidence.LOW);
+        assertThat(withFallback.stop().rationale())
+                .contains("no support zone")          // the structural reason is preserved
+                .contains("FALLBACK")
+                .contains("ignores the chart");
 
-        assertThat(analysis.stop().isPresent()).isFalse();
-        assertThat(analysis.stop().rationale()).contains("no support zone");
+        // With the fallback disabled it still refuses outright.
+        LevelAnalysis strict = strictService.analyse("TEST", bars, BigDecimal.valueOf(200));
+        assertThat(strict.stop().isPresent()).isFalse();
+        assertThat(strict.stop().rationale()).contains("no support zone");
     }
 
     @Test
     @DisplayName("nothing overhead means no target — the tool says so instead of picking a number")
     void refusesWhenNothingOverhead() {
-        LevelAnalysis analysis = service.analyse("TEST", oscillating(5), BigDecimal.valueOf(500));
+        LevelAnalysis withFallback = service.analyse("TEST", oscillating(5), BigDecimal.valueOf(500));
+        assertThat(withFallback.target().isFallback()).isTrue();
+        assertThat(withFallback.target().rationale())
+                .contains("no resistance zone")
+                .contains("not a level anyone has traded at");
 
-        assertThat(analysis.target().isPresent()).isFalse();
-        assertThat(analysis.target().rationale()).contains("no resistance zone");
+        LevelAnalysis strict = strictService.analyse("TEST", oscillating(5), BigDecimal.valueOf(500));
+        assertThat(strict.target().isPresent()).isFalse();
     }
 
     @Test
     @DisplayName("a stop further than maxStopPercent is refused — too wide to size")
     void refusesAStopThatIsTooFarAway() {
-        // Support near 40 but price at 200 -> a stop ~80% away, far beyond the 15% limit.
-        LevelAnalysis analysis = service.analyse("TEST", oscillating(5), BigDecimal.valueOf(200));
+        // Support near 40 but price at 200 -> a structural stop ~80% away, beyond the 15% limit.
+        LevelAnalysis strict = strictService.analyse("TEST", oscillating(5), BigDecimal.valueOf(200));
+        assertThat(strict.stop().isPresent()).isFalse();
+        assertThat(strict.stop().rationale()).contains("wider than the 15%").contains("your own read");
+
+        // The hybrid still produces a usable stop here — a volatility stop 2×ATR below 200 is
+        // only a few percent away, so the max-stop guard does not fire on the fallback.
+        LevelAnalysis withFallback = service.analyse("TEST", oscillating(5), BigDecimal.valueOf(200));
+        assertThat(withFallback.stop().isFallback()).isTrue();
+        assertThat(withFallback.stop().value()).isLessThan(BigDecimal.valueOf(200));
+    }
+
+    @Test
+    @DisplayName("the fallback obeys the max-stop guard too — it is not an escape hatch")
+    void theFallbackIsAlsoBoundedByMaxStopPercent() {
+        // Wide daily ranges (ATR ~20 on a ~$100 stock) but drifting up, so no swing low forms.
+        // 2×ATR = 40, i.e. a 40% stop — past the 15% limit, yet still above zero, so this exercises
+        // the max-stop guard rather than the stop-below-zero one.
+        List<Candle> wide = new ArrayList<>();
+        LocalDate date = LocalDate.of(2025, 1, 1);
+        for (int i = 0; i < 120; i++) {
+            double p = 100 + i * 0.1;
+            wide.add(bar(date.plusDays(i), p - 10, p + 10, p));
+        }
+
+        LevelAnalysis analysis = service.analyse("TEST", wide, BigDecimal.valueOf(100));
 
         assertThat(analysis.stop().isPresent()).isFalse();
-        assertThat(analysis.stop().rationale()).contains("wider than the 15%").contains("your own read");
+        assertThat(analysis.stop().rationale()).contains("also beyond the");
     }
 
     @Test

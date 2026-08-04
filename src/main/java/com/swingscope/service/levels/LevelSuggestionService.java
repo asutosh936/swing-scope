@@ -109,6 +109,18 @@ public class LevelSuggestionService {
         LevelSuggestion stop = proposeStop(symbol, supports, price, atr);
         LevelSuggestion target = proposeTarget(symbol, resistances, price);
 
+        // 6A.8: structure is preferred where it exists, but the wide backtest found it no better
+        // than a volatility rule on a matched comparison — and wildly variable by symbol. So rather
+        // than leaving the field blank, fall back, and mark it clearly as a fallback.
+        if (properties.fallbackToAtr() && atr != null && atr.signum() > 0) {
+            if (!stop.isPresent()) {
+                stop = atrFallbackStop(symbol, price, atr, stop.rationale());
+            }
+            if (!target.isPresent() && stop.isPresent()) {
+                target = atrFallbackTarget(price, stop.value(), target.rationale());
+            }
+        }
+
         LevelAnalysis analysis = new LevelAnalysis(symbol, price, atr, stop, target,
                 supports, resistances, barCount, tail, warnings);
 
@@ -158,7 +170,8 @@ public class LevelSuggestionService {
 
         log.debug("{}: stop {} from support zone {}–{} ({} touches)",
                 symbol, stop, zone.low(), zone.high(), zone.touches());
-        return new LevelSuggestion(stop, rationale, confidenceOf(zone), zone);
+        return new LevelSuggestion(stop, rationale, confidenceOf(zone), zone,
+                LevelSuggestion.Source.STRUCTURE);
     }
 
     // ---------------------------------------------------------------------------------- target
@@ -185,7 +198,51 @@ public class LevelSuggestionService {
 
         log.debug("{}: target {} from resistance zone {}–{} ({} touches)",
                 symbol, target, zone.low(), zone.high(), zone.touches());
-        return new LevelSuggestion(target, rationale, confidenceOf(zone), zone);
+        return new LevelSuggestion(target, rationale, confidenceOf(zone), zone,
+                LevelSuggestion.Source.STRUCTURE);
+    }
+
+    /**
+     * A stop derived from volatility alone, used when no clean shelf exists. Always LOW confidence
+     * and always labelled — it ignores the chart entirely, which is exactly why it needs your eyes.
+     */
+    private LevelSuggestion atrFallbackStop(String symbol, BigDecimal price, BigDecimal atr,
+                                            String whyStructureFailed) {
+        BigDecimal stop = price.subtract(atr.multiply(properties.fallbackStopAtrMultiple()))
+                .setScale(2, RoundingMode.HALF_UP);
+        if (stop.signum() <= 0) {
+            return LevelSuggestion.none(whyStructureFailed);
+        }
+        BigDecimal stopPercent = price.subtract(stop)
+                .multiply(ONE_HUNDRED).divide(price, 2, RoundingMode.HALF_UP);
+        if (stopPercent.compareTo(properties.maxStopPercent()) > 0) {
+            return LevelSuggestion.none(whyStructureFailed
+                    + "; the volatility fallback would sit %s%% away, also beyond the %s%% limit"
+                    .formatted(stopPercent, properties.maxStopPercent()));
+        }
+
+        log.debug("{}: no structural support — falling back to {} × ATR",
+                symbol, properties.fallbackStopAtrMultiple());
+        return LevelSuggestion.fallback(stop,
+                "%s. FALLBACK: %s × ATR below entry (%s), which ignores the chart entirely — "
+                        .formatted(whyStructureFailed, properties.fallbackStopAtrMultiple(),
+                                atr.setScale(2, RoundingMode.HALF_UP))
+                        + "check it against support you can see before accepting it");
+    }
+
+    /** A target giving the minimum acceptable reward for whatever risk the stop implies. */
+    private LevelSuggestion atrFallbackTarget(BigDecimal price, BigDecimal stop,
+                                              String whyStructureFailed) {
+        BigDecimal risk = price.subtract(stop);
+        if (risk.signum() <= 0) {
+            return LevelSuggestion.none(whyStructureFailed);
+        }
+        BigDecimal target = price.add(risk.multiply(properties.fallbackRewardMultiple()))
+                .setScale(2, RoundingMode.HALF_UP);
+        return LevelSuggestion.fallback(target,
+                "%s. FALLBACK: %s\u00d7 the risk distance, not a level anyone has traded at — "
+                        .formatted(whyStructureFailed, properties.fallbackRewardMultiple())
+                        + "check it against resistance you can see");
     }
 
     /** Touches and recency, nothing cleverer — and never above MEDIUM on a stale level. */
